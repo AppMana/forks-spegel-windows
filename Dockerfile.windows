@@ -7,5 +7,9 @@
 # v1.0.0 (which targets Server 2019 and fails with
 # "hcsshim::ImportLayer ... configuration registry database is corrupt").
 FROM mcr.microsoft.com/windows/nanoserver:ltsc2022
-COPY ./dist/spegel_windows_amd64/spegel.exe C:\spegel\spegel.exe
-ENTRYPOINT ["C:\\spegel\\spegel.exe"]
+# HostProcess containers run the entrypoint on the HOST, not inside a
+# container chroot. Absolute paths like `C:\spegel\spegel.exe` look under the
+# host's C:\ (missing). Kubelet sets CWD to $CONTAINER_SANDBOX_MOUNT_POINT
+# where the image contents are extracted, so use a relative entrypoint.
+COPY ./dist/spegel_windows_amd64/spegel.exe spegel.exe
+ENTRYPOINT ["spegel.exe"]
