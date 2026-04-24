@@ -1,9 +1,11 @@
 # escape=`
-# Windows HostProcess container image for Spegel. The base image is a
-# HostProcess-only base (no full Windows userspace). ARG directives AFTER
-# FROM force a layer creation that fails on this base (hcsshim cannot
-# instantiate a layer for a shell-less image), so we hardcode amd64 —
-# Windows HostProcess containers are amd64-only in practice.
-FROM mcr.microsoft.com/oss/kubernetes/windows-host-process-containers-base-image:v1.0.0
+# Windows HostProcess container image. HostProcess pods run as host processes
+# and do not use the image's userspace — the image only needs to match the
+# host OS version so hcsshim can import layers. The GitHub windows-latest
+# runner is Server 2022 (ltsc2022, build 20348), so we use nanoserver:ltsc2022
+# rather than the oss/kubernetes windows-host-process-containers-base-image
+# v1.0.0 (which targets Server 2019 and fails with
+# "hcsshim::ImportLayer ... configuration registry database is corrupt").
+FROM mcr.microsoft.com/windows/nanoserver:ltsc2022
 COPY ./dist/spegel_windows_amd64/spegel.exe C:\spegel\spegel.exe
 ENTRYPOINT ["C:\\spegel\\spegel.exe"]
