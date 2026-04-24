@@ -1,0 +1,176 @@
+=== NAMED PIPE ===
+exists: true
+Get-Item : Could not find item \\.\pipe\containerd-containerd.
+At line:4 char:1
++ Get-Item "\\.\pipe\containerd-containerd" 2>&1 | Format-List Name, Ta ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (\\.\pipe\containerd-containerd:String) [Get-Item], IOException
+    + FullyQualifiedErrorId : ItemNotFound,Microsoft.PowerShell.Commands.GetItemCommand
+ 
+
+Get-Acl : Cannot find path 'Microsoft.PowerShell.Core\FileSystem::\\.\pipe\containerd-containerd' because it does not 
+exist.
+At line:5 char:1
++ Get-Acl  "\\.\pipe\containerd-containerd" 2>&1 | Format-List Owner, A ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (:) [Get-Acl], ItemNotFoundException
+    + FullyQualifiedErrorId : GetAcl_PathNotFound,Microsoft.PowerShell.Commands.GetAclCommand
+ 
+
+=== CONTAINERD VERSION ===
+
+
+ProductVersion : 
+FileVersion    : 
+
+
+
+
+
+
+Name      : containerd
+Status    : Running
+StartType : Automatic
+
+
+
+
+=== CONTENT STORE LAYOUT ===
+C:\ProgramData\containerd\root
+C:\ProgramData\containerd\state
+
+C:\ProgramData\containerd\root\io.containerd.content.v1.content
+C:\ProgramData\containerd\root\io.containerd.grpc.v1.cri
+C:\ProgramData\containerd\root\io.containerd.grpc.v1.introspection
+C:\ProgramData\containerd\root\io.containerd.metadata.v1.bolt
+C:\ProgramData\containerd\root\io.containerd.runtime.v2.task
+C:\ProgramData\containerd\root\io.containerd.sandbox.controller.v1.shim
+C:\ProgramData\containerd\root\io.containerd.snapshotter.v1.cimfs
+C:\ProgramData\containerd\root\io.containerd.snapshotter.v1.windows
+C:\ProgramData\containerd\root\io.containerd.snapshotter.v1.windows-lcow
+C:\ProgramData\containerd\root\opt
+
+=== BLOBS SAMPLE ===
+
+Name                                                               Length
+----                                                               ------
+0002648c324f375c764bd251d4dacb49fcf77ba09f3711e15b423862eb7b0824     2591
+003a3f6f464323bf641191fa862ff15ca7fe6f959a648ad67a58c5d69224c587     1030
+0070b9b8f8f0b65446719c65a2bfda04a68a4a58554cbb0dc57d896ca3ad98e6   150068
+00b8e4b67c1a9a804b3f8200ad88408a7a383ebdab38ea00ec7b94a44c85e4ca     4595
+00c37614430c565d4cafe550560f90debb8a2c2be835af8095fcb09e5702b9fd 26418524
+0108f6beff6c57917bddb5393b6472f91cde8a6dda21e0f23dc527246f7de35e     4573
+014fabde9c1a38a993459ef086fc77fa98cd0abcd25d3f1c7f2d64156c153570 34614973
+016f11df1b631a332c7ae4de771799f6cf71046c189465e2147dfb527f3c7fa2     9495
+017ce34d8162a6312d74a2af0f2c5d9ba6f532cc702a5823ec492cd4e46db8f7     2225
+01878ecf22651c38bbfbef0e598dc5d50717f2d01869fa17a435fce0d14353b0    78194
+
+
+
+=== EXISTING CERTS.D ===
+
+False
+=== CONFIG.TOML SNIPPET ===
+
+  [plugins.'io.containerd.cri.v1.images']
+    discard_unpacked_layers = false
+    [plugins.'io.containerd.cri.v1.images'.pinned_images]
+      sandbox = 'registry.k8s.io/pause:3.10.1'
+    [plugins.'io.containerd.cri.v1.images'.registry]
+      config_path = ''
+    [plugins.'io.containerd.cri.v1.images'.image_decryption]
+  [plugins.'io.containerd.cri.v1.runtime']
+    [plugins.'io.containerd.cri.v1.runtime'.containerd]
+      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes]
+        [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runhcs-wcow-hypervisor]
+          [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runhcs-wcow-hypervisor.options]
+        [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runhcs-wcow-process]
+    [plugins.'io.containerd.cri.v1.runtime'.cni]
+  [plugins.'io.containerd.grpc.v1.cri']
+    [plugins.'io.containerd.grpc.v1.cri'.x509_key_pair_streaming]
+    plugin_config_path = '/etc/nri/conf.d'
+    config_path = ''
+  'io.containerd.timeout.cri.defercleanup' = '1m0s'
+
+
+
+=== LIST NAMED PIPES matching *containerd* ===
+\\.\pipe\containerd-containerd.ttrpc
+\\.\pipe\containerd-containerd
+\\.\pipe\containerd-shim-k8s.io-d2834122fb8d8675d4f7d4ece4086fd8060a9e2952e2e18dfd6bba42e6912413-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-d2834122fb8d8675d4f7d4ece4086fd8060a9e2952e2e18dfd6bba42e6912413-pipe
+\\.\pipe\containerd-shim-k8s.io-f1d98cbf5bbce4fd11f34fb68d3b0fb77fe8fc00481f821146806f03b4c5402d-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-f1d98cbf5bbce4fd11f34fb68d3b0fb77fe8fc00481f821146806f03b4c5402d-pipe
+\\.\pipe\containerd-shim-k8s.io-a98c1eaab89f059516b162040f632aaa806ea2eea561a2966947497005eb9d3a-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-a98c1eaab89f059516b162040f632aaa806ea2eea561a2966947497005eb9d3a-pipe
+\\.\pipe\containerd-shim-k8s.io-31a7f9ee394d0047c94c2f17b2d590de638cf8d625651e9bcde6a8217fc6f7b2-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-31a7f9ee394d0047c94c2f17b2d590de638cf8d625651e9bcde6a8217fc6f7b2-pipe
+\\.\pipe\containerd-shim-k8s.io-96d51c085730af2f45696066f938dd237b8082f7ae991c6fb392f2818ec7305e-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-96d51c085730af2f45696066f938dd237b8082f7ae991c6fb392f2818ec7305e-pipe
+\\.\pipe\containerd-shim-k8s.io-100105ecaab8e1113cbccb4948f29507bdb6fa91e19e8d7bb3fedbabb382087d-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-100105ecaab8e1113cbccb4948f29507bdb6fa91e19e8d7bb3fedbabb382087d-pipe
+\\.\pipe\containerd-shim-k8s.io-8066287e7224448eadf80b27e34f2d05957d6660dc55e75f9e27c7827f5b1922-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-8066287e7224448eadf80b27e34f2d05957d6660dc55e75f9e27c7827f5b1922-pipe
+\\.\pipe\containerd-shim-k8s.io-5946123e45702e58d7dd1ab2cdaf22f226f0aca43d53a2b4df37f7fbde118d6c-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-5946123e45702e58d7dd1ab2cdaf22f226f0aca43d53a2b4df37f7fbde118d6c-pipe
+\\.\pipe\containerd-shim-k8s.io-6b89d91bbc74c0ee680919577520d5c699934317478e55551a58e2280a4f0751-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-6b89d91bbc74c0ee680919577520d5c699934317478e55551a58e2280a4f0751-pipe
+\\.\pipe\containerd-shim-k8s.io-3e141afee876a305d2d7756e43b4dc2cf547981a28398cb59b59f78af8132b10-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-3e141afee876a305d2d7756e43b4dc2cf547981a28398cb59b59f78af8132b10-pipe
+\\.\pipe\containerd-shim-k8s.io-38739832baa916f49d3a8c0caf8f2fe890699e8dae713f209572b6802dc9e090-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-38739832baa916f49d3a8c0caf8f2fe890699e8dae713f209572b6802dc9e090-pipe
+\\.\pipe\containerd-shim-k8s.io-205a007cf29cc3dad161fd8004667aed676ce6d821abc511f9bd19eab015db78-log
+\\.\pipe\ProtectedPrefix\Administrators\containerd-shim-k8s.io-205a007cf29cc3dad161fd8004667aed676ce6d821abc511f9bd19eab015db78-pipe
+=== ALL named pipes (first 30) ===
+\\.\pipe\InitShutdown
+\\.\pipe\lsass
+\\.\pipe\ntsvcs
+\\.\pipe\scerpc
+\\.\pipe\Winsock2\CatalogChangeListener-550-0
+\\.\pipe\Winsock2\CatalogChangeListener-684-0
+\\.\pipe\epmapper
+\\.\pipe\Winsock2\CatalogChangeListener-4c0-0
+\\.\pipe\Winsock2\CatalogChangeListener-6b4-0
+\\.\pipe\LSM_API_service
+\\.\pipe\eventlog
+\\.\pipe\Winsock2\CatalogChangeListener-55c-0
+\\.\pipe\atsvc
+\\.\pipe\Winsock2\CatalogChangeListener-a24-0
+\\.\pipe\NvMessageBusBroadcastNVIDIA.Display.Driver
+\\.\pipe\spoolss
+\\.\pipe\Winsock2\CatalogChangeListener-7e8-0
+\\.\pipe\trkwks
+\\.\pipe\W32TIME_ALT
+\\.\pipe\srvsvc
+\\.\pipe\W32PosixPipe.000010cc.00000000
+\\.\pipe\PIPE_EVENTROOT\CIMV2SCM EVENT PROVIDER
+\\.\pipe\MagSVC
+\\.\pipe\SDMigration
+\\.\pipe\Winsock2\CatalogChangeListener-114c-0
+\\.\pipe\containerd-containerd.ttrpc
+\\.\pipe\containerd-containerd
+\\.\pipe\Winsock2\CatalogChangeListener-508-0
+\\.\pipe\PSHost.134212805165761183.3836.DefaultAppDomain.powershell
+\\.\pipe\kubelet-pod-resources
+=== containerd config.toml - gRPC + address ===
+
+version = 3
+root = 'C:\ProgramData\containerd\root'
+state = 'C:\ProgramData\containerd\state'
+[grpc]
+  address = '\\.\pipe\containerd-containerd'
+  tcp_address = ''
+  address = ''
+  address = ''
+  address = ''
+  grpc_histogram = false
+    netns_mounts_under_state_dir = false
+  [plugins.'io.containerd.grpc.v1.cri']
+    stream_server_address = '127.0.0.1'
+    [plugins.'io.containerd.grpc.v1.cri'.x509_key_pair_streaming]
+    bin_dir = 'C:\ProgramData\containerd\root\opt\image-verifier\bin'
+    path = 'C:\ProgramData\containerd\root\opt'
+  'io.containerd.timeout.task.state' = '2s'
+
+
+

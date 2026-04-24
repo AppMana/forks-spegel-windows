@@ -1,0 +1,160 @@
+{{- if .Values.windows.enabled }}
+# Windows HostProcess DaemonSet. Runs Spegel as a HostProcess pod which has
+# direct access to the host filesystem and containerd's named pipe — no
+# hostPath volume mounts are needed for the socket, content store, or
+# registry config dir (unlike Linux, where those are explicit mounts).
+# See probes/appmana-023/findings.md for the captured ground truth.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "spegel.fullname" . }}-windows
+  namespace: {{ include "spegel.namespace" . }}
+  {{- with .Values.daemonsetAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    app.kubernetes.io/component: spegel-windows
+    {{- include "spegel.labels" . | nindent 4 }}
+spec:
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: spegel-windows
+      {{- include "spegel.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: spegel-windows
+        {{- include "spegel.selectorLabels" . | nindent 8 }}
+        {{- with .Values.commonLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "spegel.serviceAccountName" . }}
+      securityContext:
+        windowsOptions:
+          hostProcess: true
+          runAsUserName: "NT AUTHORITY\\SYSTEM"
+      hostNetwork: true
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- if .Values.spegel.containerdMirrorAdd }}
+      initContainers:
+      - name: configuration
+        image: {{ printf "%s:%s" (.Values.windows.image.repository | default .Values.image.repository) (.Values.windows.image.tag | default (printf "%s-windows-amd64" (.Values.image.tag | default .Chart.AppVersion))) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args:
+          - configuration
+          - --log-level={{ .Values.spegel.logLevel }}
+          - --containerd-registry-config-path={{ .Values.windows.spegel.containerdRegistryConfigPath }}
+          {{- with .Values.spegel.mirroredRegistries }}
+          - --mirrored-registries
+          {{- range . }}
+          - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+          - --mirror-targets
+          {{- if not .Values.service.registry.usePreferSameNodeTrafficDistribution }}
+          - http://$(NODE_IP):{{ .Values.service.registry.hostPort }}
+          {{- end }}
+          - http://$(NODE_IP):{{ .Values.service.registry.nodePort }}
+          {{- with .Values.spegel.additionalMirrorTargets }}
+          {{- range . }}
+          - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+          - --resolve-tags={{ .Values.spegel.resolveTags }}
+          - --prepend-existing={{ .Values.spegel.prependExisting }}
+        env:
+        - name: NODE_IP
+        {{- include "networking.nodeIp" . | nindent 10 }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+      {{- end }}
+      containers:
+      - name: registry
+        image: {{ printf "%s:%s" (.Values.windows.image.repository | default .Values.image.repository) (.Values.windows.image.tag | default (printf "%s-windows-amd64" (.Values.image.tag | default .Chart.AppVersion))) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args:
+          - registry
+          - --log-level={{ .Values.spegel.logLevel }}
+          - --mirror-resolve-retries={{ .Values.spegel.mirrorResolveRetries }}
+          - --mirror-resolve-timeout={{ .Values.spegel.mirrorResolveTimeout }}
+          - --registry-addr=:{{ .Values.service.registry.port }}
+          - --router-addr=:{{ .Values.service.router.port }}
+          - --metrics-addr=:{{ .Values.service.metrics.port }}
+          {{- with .Values.spegel.mirroredRegistries }}
+          - --mirrored-registries
+          {{- range . }}
+          - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+          - --containerd-sock={{ .Values.windows.spegel.containerdSock }}
+          - --containerd-namespace={{ .Values.spegel.containerdNamespace }}
+          - --bootstrap-kind=dns
+          - --dns-bootstrap-domain={{ include "spegel.fullname" . }}-bootstrap.{{ include "spegel.namespace" . }}.svc.{{ .Values.clusterDomain }}
+          {{- with .Values.spegel.registryFilters }}
+          - --registry-filters
+          {{- range . }}
+          - {{ . | quote }}
+          {{- end }}
+          {{- end }}
+          - --containerd-content-path={{ .Values.windows.spegel.containerdContentPath }}
+          - --debug-web-enabled={{ .Values.spegel.debugWebEnabled }}
+          {{- if .Values.windows.spegel.persistence.enabled }}
+          - --data-dir={{ .Values.windows.spegel.persistence.path }}
+          {{- end }}
+        env:
+        - name: NODE_IP
+        {{- include "networking.nodeIp" . | nindent 10 }}
+        ports:
+          - name: registry
+            containerPort: {{ .Values.service.registry.port }}
+            {{- if not .Values.service.registry.usePreferSameNodeTrafficDistribution }}
+            hostPort: {{ .Values.service.registry.hostPort }}
+            {{- end }}
+            protocol: TCP
+          - name: router-tcp
+            containerPort: {{ .Values.service.router.port }}
+            protocol: TCP
+          - name: router-quic
+            containerPort: {{ .Values.service.router.port }}
+            protocol: UDP
+          - name: metrics
+            containerPort: {{ .Values.service.metrics.port }}
+            protocol: TCP
+        startupProbe:
+          periodSeconds: 3
+          failureThreshold: 60
+          httpGet:
+            path: /readyz
+            port: registry
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: registry
+        {{- if .Values.livenessProbe.enabled }}
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: registry
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+      nodeSelector:
+        kubernetes.io/os: windows
+      {{- with .Values.windows.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,9 @@
+# escape=`
+# Windows HostProcess container image for Spegel. Base image provides the
+# minimal Windows runtime needed for HostProcess pods (no full Windows
+# userspace). See https://kubernetes.io/docs/tasks/configure-pod-container/create-hostprocess-pod/.
+ARG BASE=mcr.microsoft.com/oss/kubernetes/windows-host-process-containers-base-image:v1.0.0
+FROM ${BASE}
+ARG TARGETARCH=amd64
+COPY ./dist/spegel_windows_${TARGETARCH}/spegel.exe C:\spegel\spegel.exe
+ENTRYPOINT ["C:\\spegel\\spegel.exe"]

@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/spegel-org/spegel/internal/cleanup"
+	"github.com/spegel-org/spegel/internal/platform"
 	"github.com/spegel-org/spegel/internal/version"
 	"github.com/spegel-org/spegel/pkg/metrics"
 	"github.com/spegel-org/spegel/pkg/oci"
@@ -89,6 +90,7 @@ type Arguments struct {
 }
 
 func main() {
+	platform.ApplyEnvDefaults()
 	args := &Arguments{}
 	arg.MustParse(args)
 

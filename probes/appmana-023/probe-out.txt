@@ -1,0 +1,15 @@
+probe: OS=windows ARCH=amd64 pipe=\\.\pipe\containerd-containerd namespace=k8s.io
+containerd version=v2.2.1 revision=dea7da592f5d1d2b7755e3a161be07f43fad8f75
+images: 259 total
+  270666084746.dkr.ecr.us-west-2.amazonaws.com/user-17b9c4a8-cc0b-4f76-a52c-6646b21db313/appmana-unity:main-39a8929-1723615837
+  270666084746.dkr.ecr.us-west-2.amazonaws.com/user-17b9c4a8-cc0b-4f76-a52c-6646b21db313/appmana-unity@sha256:725472083a64d3496b9f96b9669e57ffab979e52afa2c0c2fb5aee830c0dca89
+  docker.io/calico/node-windows:v3.29.6
+  docker.io/calico/node-windows@sha256:20d1e2d511b207c62172bb5c9b57c21fd91a17b72a0bf6d450ed4eef204eb77b
+  docker.io/calico/windows:v3.26.4
+... (254 more)
+content-store blobs: 1154  total=93597603022 bytes
+  sha256:0002648c324f375c764bd251d4dacb49fcf77ba09f3711e15b423862eb7b0824 size=2591 labels=map[containerd.io/distribution.source.harbor.appmana.com:appmana-shared/node-windows containerd.io/uncompressed:sha256:20756810a267dacd263b0c3f8a28c07a835d4e9444fd9dd44d3caca51b280872]
+  sha256:003a3f6f464323bf641191fa862ff15ca7fe6f959a648ad67a58c5d69224c587 size=1030 labels=map[containerd.io/distribution.source.harbor.appmana.com:appmana-shared/node-windows containerd.io/uncompressed:sha256:c4b0760662566b5547afe045e64f05aca3f5df87ee731a4661a955b7fbb4aafa]
+  sha256:0070b9b8f8f0b65446719c65a2bfda04a68a4a58554cbb0dc57d896ca3ad98e6 size=150068 labels=map[containerd.io/distribution.source.harbor.appmana.com:appmana-shared/node-windows containerd.io/uncompressed:sha256:06c4cd647ae0f2087950e44b4df1d8d59a0713cf921a9478c1476ead8652e8c8]
+  sha256:00b8e4b67c1a9a804b3f8200ad88408a7a383ebdab38ea00ec7b94a44c85e4ca size=4595 labels=map[containerd.io/distribution.source.harbor.appmana.com:appmana-shared/node-windows containerd.io/uncompressed:sha256:2ab6d7c6783773288adde56903d0a5b0c736b93ba32ca26162c46317d41c474d]
+  sha256:00c37614430c565d4cafe550560f90debb8a2c2be835af8095fcb09e5702b9fd size=26418524 labels=map[containerd.io/distribution.source.docker.io:democraticcsi/democratic-csi containerd.io/uncompressed:sha256:70d5cd58dd3391f837109ce1381addd689852021d7da843173cb78bc27eddc26]

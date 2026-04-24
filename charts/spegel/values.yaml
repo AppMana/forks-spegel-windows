@@ -197,6 +197,36 @@ spegel:
   # -- When true enables debug web page.
   debugWebEnabled: true
 
+# -- Windows DaemonSet settings (opt-in). When `windows.enabled=true` a second
+# DaemonSet is rendered that targets `kubernetes.io/os: windows` nodes and runs
+# Spegel as a HostProcess container. The Linux DaemonSet is always rendered and
+# is automatically pinned to `kubernetes.io/os: linux` to prevent scheduling on
+# Windows nodes. This was added by the appmana fork — see
+# https://github.com/appmana/forks-spegel-windows.
+windows:
+  # -- If true, render a Windows HostProcess DaemonSet in addition to the Linux one.
+  enabled: false
+  image:
+    # -- Windows image repository. Separate from Linux because publishing a
+    # cross-OS manifest list is a follow-up; for now a -windows-amd64 suffix tag
+    # is built by the release-windows workflow.
+    repository: ""
+    # -- Windows image tag. Empty means default to `<chart appVersion>-windows-amd64`.
+    tag: ""
+  # -- Tolerations for the Windows DaemonSet. Copy from your existing Windows
+  # workloads (e.g., Calico for Windows); leave empty to inherit cluster defaults.
+  tolerations: []
+  # -- Spegel Windows paths. Match containerd 2.2.1 on Windows Server 2022
+  # (observed on appmana-023 — see probes/appmana-023/findings.md).
+  spegel:
+    containerdSock: "\\\\.\\pipe\\containerd-containerd"
+    containerdContentPath: "C:\\ProgramData\\containerd\\root\\io.containerd.content.v1.content"
+    containerdRegistryConfigPath: "C:\\ProgramData\\containerd\\certs.d"
+    persistence:
+      enabled: true
+      path: "C:\\ProgramData\\spegel"
+      hostPath: "C:\\ProgramData\\spegel"
+
 verticalPodAutoscaler:
   # -- If true creates a Vertical Pod Autoscaler.
   enabled: false

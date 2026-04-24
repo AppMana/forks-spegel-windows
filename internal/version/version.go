@@ -2,11 +2,8 @@ package version
 
 import (
 	"errors"
-	"fmt"
-	"os"
 	"runtime/debug"
 	"strconv"
-	"strings"
 )
 
 type Info struct {
@@ -26,13 +23,13 @@ type Runtime struct {
 	Arch   string `json:"arch"`
 }
 
+// Preflight is a best-effort sanity check run on startup. It used to gate
+// Spegel to Linux+Distroless only; that gate has been removed to support
+// Windows HostProcess deployments where the runtime is Windows Server and
+// there is no "Distroless" concept. The function is kept so existing callers
+// keep compiling, and so future platform-specific guards can be added without
+// changing the call site in main.go. Today it performs no validation.
 func (i Info) Preflight() error {
-	if os.Getenv("KUBERNETES_SERVICE_HOST") == "" {
-		return nil
-	}
-	if i.Runtime.OS != "linux" && i.Runtime.Distro != "Distroless" {
-		return fmt.Errorf("unsupported container distro %s", i.Runtime.Distro)
-	}
 	return nil
 }
 
@@ -66,21 +63,6 @@ func Load() (Info, error) {
 		}
 	}
 	return info, nil
-}
-
-func getDistro() string {
-	unknownDistro := "unknown"
-	b, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		return unknownDistro
-	}
-	for line := range strings.SplitSeq(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "PRETTY_NAME=") {
-			return strings.Trim(line[len("PRETTY_NAME="):], `"`)
-		}
-	}
-	return unknownDistro
 }
 
 func getVersion(mainVersion string, modified bool) string {
