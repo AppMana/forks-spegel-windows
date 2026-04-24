@@ -153,8 +153,10 @@ spec:
           {{- toYaml .Values.resources | nindent 10 }}
       nodeSelector:
         kubernetes.io/os: windows
-      {{- with .Values.windows.tolerations }}
       tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- if .Values.windows.tolerations }}
+        {{- toYaml .Values.windows.tolerations | nindent 8 }}
+        {{- else }}
+        {{- toYaml .Values.tolerations | nindent 8 }}
+        {{- end }}
 {{- end }}
