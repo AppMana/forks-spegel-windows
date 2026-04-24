@@ -47,6 +47,11 @@ spec:
           hostProcess: true
           runAsUserName: "NT AUTHORITY\\SYSTEM"
       hostNetwork: true
+      # hostNetwork pods default to ClusterFirst which resolves via the host
+      # resolv.conf and cannot see cluster.local. ClusterFirstWithHostNet
+      # forwards cluster.local queries to CoreDNS while still using the host
+      # network namespace — required for the spegel-bootstrap DNS bootstrap.
+      dnsPolicy: ClusterFirstWithHostNet
       priorityClassName: {{ .Values.priorityClassName }}
       {{- if .Values.spegel.containerdMirrorAdd }}
       initContainers:
