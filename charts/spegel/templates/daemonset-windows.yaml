@@ -117,12 +117,13 @@ spec:
         env:
         - name: NODE_IP
         {{- include "networking.nodeIp" . | nindent 10 }}
+        # hostNetwork=true ⇒ containerPort IS the host port; hostPort must
+        # equal containerPort (kube API rejects otherwise). The Linux DS
+        # rebinds 5000→30020 via hostPort; on Windows we just bind directly
+        # to the Linux default (5000/5001/9090) on the host.
         ports:
           - name: registry
             containerPort: {{ .Values.service.registry.port }}
-            {{- if not .Values.service.registry.usePreferSameNodeTrafficDistribution }}
-            hostPort: {{ .Values.service.registry.hostPort }}
-            {{- end }}
             protocol: TCP
           - name: router-tcp
             containerPort: {{ .Values.service.router.port }}
