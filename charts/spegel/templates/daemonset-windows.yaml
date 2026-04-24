@@ -47,11 +47,23 @@ spec:
           hostProcess: true
           runAsUserName: "NT AUTHORITY\\SYSTEM"
       hostNetwork: true
-      # hostNetwork pods default to ClusterFirst which resolves via the host
-      # resolv.conf and cannot see cluster.local. ClusterFirstWithHostNet
-      # forwards cluster.local queries to CoreDNS while still using the host
-      # network namespace — required for the spegel-bootstrap DNS bootstrap.
-      dnsPolicy: ClusterFirstWithHostNet
+      # Windows HostProcess pods do NOT receive a kubelet-injected resolv.conf
+      # (Windows network stack lacks per-pod DNS isolation), so ClusterFirst
+      # variants don't take effect. Use dnsPolicy=None + explicit dnsConfig
+      # pointing at CoreDNS so cluster.local lookups succeed.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          {{- range .Values.windows.dnsNameservers }}
+          - {{ . | quote }}
+          {{- end }}
+        searches:
+          - {{ include "spegel.namespace" . }}.svc.{{ .Values.clusterDomain }}
+          - svc.{{ .Values.clusterDomain }}
+          - {{ .Values.clusterDomain }}
+        options:
+          - name: ndots
+            value: "5"
       priorityClassName: {{ .Values.priorityClassName }}
       {{- if .Values.spegel.containerdMirrorAdd }}
       initContainers:

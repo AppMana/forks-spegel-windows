@@ -216,6 +216,11 @@ windows:
   # -- Tolerations for the Windows DaemonSet. Copy from your existing Windows
   # workloads (e.g., Calico for Windows); leave empty to inherit cluster defaults.
   tolerations: []
+  # -- Explicit DNS nameservers for the Windows HostProcess pods. Required
+  # because HostProcess pods cannot use kubelet-injected resolv.conf; set
+  # this to your CoreDNS/kube-dns ClusterIP(s). No default — operators must
+  # supply them since the value depends on the cluster's service CIDR.
+  dnsNameservers: []
   # -- Spegel Windows paths. Match containerd 2.2.1 on Windows Server 2022
   # (observed on appmana-023 — see probes/appmana-023/findings.md).
   spegel:
