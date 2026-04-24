@@ -27,7 +27,7 @@ jobs:
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 #v4.1.0
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          username: appmana
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Prepare version
         id: prep
@@ -47,7 +47,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf #v6.0.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/spegel
+          images: ghcr.io/appmana/spegel
           tags: type=raw,value=${{ steps.prep.outputs.VERSION }}
       - name: Publish multi-arch image
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f #v7.1.0
@@ -58,11 +58,11 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm/v7,linux/arm64
-          tags: ghcr.io/${{ github.repository_owner }}/spegel:${{ steps.prep.outputs.VERSION }}
+          tags: ghcr.io/appmana/spegel:${{ steps.prep.outputs.VERSION }}
           labels: ${{ steps.meta.outputs.labels }}
       - name: Sign the image with Cosign
         run: |
-          cosign sign --yes ghcr.io/${{ github.repository_owner }}/spegel@${{ steps.build.outputs.DIGEST }}
+          cosign sign --yes ghcr.io/appmana/spegel@${{ steps.build.outputs.DIGEST }}
       - name: Publish Helm chart to GHCR
         id: helm
         run: |
@@ -71,9 +71,9 @@ jobs:
           rm charts/spegel/artifacthub-repo.yml
           yq -i '.image.digest = "${{ steps.build.outputs.DIGEST }}"' charts/spegel/values.yaml
           helm package --app-version ${{ steps.prep.outputs.VERSION }} --version ${HELM_VERSION} charts/spegel
-          helm push spegel-${HELM_VERSION}.tgz oci://ghcr.io/${{ github.repository_owner }}/helm-charts 2> .digest
+          helm push spegel-${HELM_VERSION}.tgz oci://ghcr.io/appmana/helm-charts 2> .digest
           DIGEST=$(cat .digest | awk -F "[, ]+" '/Digest/{print $NF}')
           echo "DIGEST=${DIGEST}" >> $GITHUB_OUTPUT
       - name: Sign the Helm chart with Cosign
         run: |
-          cosign sign --yes ghcr.io/${{ github.repository_owner }}/helm-charts/spegel@${{ steps.helm.outputs.DIGEST }}
+          cosign sign --yes ghcr.io/appmana/helm-charts/spegel@${{ steps.helm.outputs.DIGEST }}

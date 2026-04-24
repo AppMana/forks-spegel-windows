@@ -45,12 +45,12 @@ jobs:
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 #v4.1.0
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          username: appmana
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push Windows image
         shell: bash
         run: |
-          IMG=ghcr.io/${{ github.repository_owner }}/spegel:${{ steps.prep.outputs.VERSION }}-windows-amd64
+          IMG=ghcr.io/appmana/spegel:${{ steps.prep.outputs.VERSION }}-windows-amd64
           docker build -t "$IMG" -f Dockerfile.windows .
           docker push "$IMG"
 
@@ -73,11 +73,11 @@ jobs:
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 #v4.1.0
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
+          username: appmana
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Create and push manifest list
         run: |
-          IMG=ghcr.io/${{ github.repository_owner }}/spegel
+          IMG=ghcr.io/appmana/spegel
           V=${{ steps.prep.outputs.VERSION }}
           # The Linux multi-arch manifest at $IMG:$V is produced by the
           # release.yaml workflow; combine it with the Windows image.
