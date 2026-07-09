@@ -213,6 +213,9 @@ windows:
     repository: ""
     # -- Windows image tag. Empty means default to `<chart appVersion>-windows-amd64`.
     tag: ""
+  # -- Resource requests and limits for Windows containers. Empty inherits the
+  # global resources block used by Linux.
+  resources: {}
   # -- Tolerations for the Windows DaemonSet. Copy from your existing Windows
   # workloads (e.g., Calico for Windows); leave empty to inherit cluster defaults.
   tolerations: []
