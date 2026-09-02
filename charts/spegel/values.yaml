@@ -155,6 +155,9 @@ priorityClassName: system-node-critical
 basicAuthSecretName: ""
 
 spegel:
+  # -- Optional Go soft memory limit. When empty, defaults to the container
+  # memory limit. Set lower than the cgroup limit to reserve non-heap memory.
+  goMemLimit: ""
   # -- Minimum log level to output. Value should be DEBUG, INFO, WARN, or ERROR.
   logLevel: "INFO"
   # Configuration for Spegel persistence on host used for keeping P2P identity between restarts.

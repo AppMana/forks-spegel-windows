@@ -125,7 +125,10 @@ spec:
           {{- end }}
           {{- end }}
         env:
-        {{- if ((.Values.resources).limits).memory }}
+        {{- if .Values.spegel.goMemLimit }}
+        - name: GOMEMLIMIT
+          value: {{ .Values.spegel.goMemLimit | quote }}
+        {{- else if ((.Values.resources).limits).memory }}
         - name: GOMEMLIMIT
           valueFrom:
             resourceFieldRef:
