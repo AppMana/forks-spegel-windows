@@ -1,8 +1,6 @@
 module github.com/spegel-org/spegel/test/integration/kubernetes
 
-go 1.26.6
-
-toolchain go1.27.2
+go 1.27.3
 
 replace github.com/spegel-org/spegel => ../../../
 
@@ -223,7 +221,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect

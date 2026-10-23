@@ -15,6 +15,7 @@ import (
 // structure ("<content>/blobs/<algo>/<digest>"); the only divergence is the
 // path separator, which filepath.Join handles natively.
 func TestBlobPathLayout(t *testing.T) {
+	t.Parallel()
 	const digest = "0002648c324f375c764bd251d4dacb49fcf77ba09f3711e15b423862eb7b0824"
 	cases := []struct {
 		name    string
@@ -37,6 +38,7 @@ func TestBlobPathLayout(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if tc.onlyOn != runtime.GOOS {
 				t.Skipf("layout only valid on %s", tc.onlyOn)
 			}

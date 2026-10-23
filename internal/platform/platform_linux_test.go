@@ -5,6 +5,7 @@ package platform
 import "testing"
 
 func TestDefaultsLinux(t *testing.T) {
+	t.Parallel()
 	d := Defaults()
 	want := Paths{
 		ContainerdSock:               "/run/containerd/containerd.sock",

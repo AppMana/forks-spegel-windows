@@ -1,8 +1,6 @@
 module github.com/spegel-org/spegel/test/integration/containerd
 
-go 1.26.6
-
-toolchain go1.27.2
+go 1.27.3
 
 replace github.com/spegel-org/spegel => ../../../
 
@@ -69,7 +67,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
