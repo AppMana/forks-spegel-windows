@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	registryconfig "github.com/containerd/containerd/v2/core/remotes/docker/config"
+	"github.com/containerd/containerd/v2/core/remotes/docker/config"
 	"github.com/go-logr/logr"
 	"github.com/go-openapi/testify/v2/require"
 
@@ -590,7 +590,7 @@ func TestMirrorDirectoryResolvedByContainerd(t *testing.T) {
 			require.NoError(t, err)
 			// Use containerd's resolver to verify it can discover the generated
 			// directory; URL authorities must retain their original port.
-			directory, err := registryconfig.HostDirFromRoot(root)(authority)
+			directory, err := config.HostDirFromRoot(root)(authority)
 			require.NoError(t, err)
 			contents, err := os.ReadFile(filepath.Join(directory, "hosts.toml"))
 			require.NoError(t, err)
