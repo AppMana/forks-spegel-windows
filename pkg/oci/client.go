@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -14,14 +15,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/platforms"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"github.com/spegel-org/spegel/internal/option"
+	"github.com/kvick-org/pkg/option"
+
 	"github.com/spegel-org/spegel/internal/resilient"
 	"github.com/spegel-org/spegel/pkg/httpx"
 )
@@ -32,7 +33,8 @@ const (
 )
 
 type ClientConfig struct {
-	TLSClientConfig *tls.Config
+	TLSClientConfig   *tls.Config
+	DisableKeepAlives bool
 }
 
 type ClientOption = option.Option[ClientConfig]
@@ -43,6 +45,13 @@ func WithTLS(rootCAs *x509.CertPool, certificates []tls.Certificate) ClientOptio
 			RootCAs:      rootCAs,
 			Certificates: certificates,
 		}
+		return nil
+	}
+}
+
+func WithDisableKeepAlives(v bool) ClientOption {
+	return func(cfg *ClientConfig) error {
+		cfg.DisableKeepAlives = v
 		return nil
 	}
 }
@@ -67,6 +76,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 	transport.MaxIdleConns = 100
 	transport.MaxConnsPerHost = 100
 	transport.MaxIdleConnsPerHost = 100
+	transport.DisableKeepAlives = cfg.DisableKeepAlives
 	httpClient.Transport = transport
 
 	ociClient := &Client{
@@ -79,8 +89,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 type CommonConfig struct {
 	Mirror   *url.URL
 	Header   http.Header
-	Username string
-	Password string
+	Userinfo *url.Userinfo
 }
 
 type PullConfig struct {
@@ -104,10 +113,9 @@ func WithPullHeader(header http.Header) PullOption {
 	}
 }
 
-func WithPullBasicAuth(username, password string) PullOption {
+func WithPullUserinfo(userinfo *url.Userinfo) PullOption {
 	return func(cfg *PullConfig) error {
-		cfg.Username = username
-		cfg.Password = password
+		cfg.Userinfo = userinfo
 		return nil
 	}
 }
@@ -138,78 +146,89 @@ func WithFetchHeader(k, v string) FetchOption {
 	}
 }
 
-func WithFetchBasicAuth(username, password string) FetchOption {
+func WithFetchUserinfo(userinfo *url.Userinfo) FetchOption {
 	return func(cfg *CommonConfig) error {
-		cfg.Username = username
-		cfg.Password = password
+		cfg.Userinfo = userinfo
 		return nil
 	}
 }
 
-type PullMetric struct {
-	Digest        digest.Digest
-	ContentType   string
-	ContentLength int64
-	Duration      time.Duration
+type ImageWriter interface {
+	Root(ctx context.Context, img Image, desc ocispec.Descriptor) error
+	Write(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error
 }
 
-func (c *Client) Pull(ctx context.Context, img Image, opts ...PullOption) ([]PullMetric, error) {
+type DiscardWriter struct{}
+
+func (DiscardWriter) Root(ctx context.Context, img Image, desc ocispec.Descriptor) error {
+	return nil
+}
+
+func (DiscardWriter) Write(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error {
+	_, err := io.Copy(io.Discard, r)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) Pull(ctx context.Context, img Image, w ImageWriter, opts ...PullOption) error {
 	cfg := PullConfig{
 		Platform: platforms.DefaultSpec(),
 	}
 	err := option.Apply(&cfg, opts...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	fetchOpt := func(commonCfg *CommonConfig) error {
 		commonCfg.Mirror = cfg.Mirror
 		commonCfg.Header = cfg.Header
-		commonCfg.Username = cfg.Username
-		commonCfg.Password = cfg.Password
+		commonCfg.Userinfo = cfg.Userinfo
 		return nil
 	}
 
 	imgDist, err := img.DistributionPath("http", http.MethodGet)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	queue := []DistributionPath{
 		imgDist,
 	}
-	pullMetrics := []PullMetric{}
 	for len(queue) > 0 {
 		dist := queue[0]
 		queue = queue[1:]
 
-		start := time.Now()
-		desc, err := func() (ocispec.Descriptor, error) {
+		err := func() error {
 			rc, desc, err := c.Fetch(ctx, dist, fetchOpt)
 			if err != nil {
-				return ocispec.Descriptor{}, err
+				return err
 			}
 			defer httpx.DrainAndClose(rc)
 
 			switch dist.Kind {
 			case DistributionKindBlob:
-				// Right now we are just discarding the contents because we do not have a writable store.
-				_, copyErr := io.Copy(io.Discard, rc)
+				writErr := w.Write(ctx, desc, rc)
 				closeErr := rc.Close()
-				err := errors.Join(copyErr, closeErr)
+				err := errors.Join(writErr, closeErr)
 				if err != nil {
-					return ocispec.Descriptor{}, err
+					return err
 				}
 			case DistributionKindManifest:
 				b, readErr := io.ReadAll(rc)
 				closeErr := rc.Close()
 				err = errors.Join(readErr, closeErr)
 				if err != nil {
-					return ocispec.Descriptor{}, err
+					return err
+				}
+				err := w.Write(ctx, desc, bytes.NewBuffer(b))
+				if err != nil {
+					return err
 				}
 				switch desc.MediaType {
 				case images.MediaTypeDockerSchema2ManifestList, ocispec.MediaTypeImageIndex:
 					var idx ocispec.Index
 					if err := json.Unmarshal(b, &idx); err != nil {
-						return ocispec.Descriptor{}, err
+						return err
 					}
 					for _, m := range idx.Manifests {
 						if !platforms.Only(cfg.Platform).Match(*m.Platform) {
@@ -222,7 +241,7 @@ func (c *Client) Pull(ctx context.Context, img Image, opts ...PullOption) ([]Pul
 						}
 						nextDist, err := NewDistributionPath(nextRef, DistributionKindManifest, dist.Scheme, http.MethodGet, nil)
 						if err != nil {
-							return ocispec.Descriptor{}, err
+							return err
 						}
 						queue = append(queue, nextDist)
 					}
@@ -230,7 +249,7 @@ func (c *Client) Pull(ctx context.Context, img Image, opts ...PullOption) ([]Pul
 					var manifest ocispec.Manifest
 					err := json.Unmarshal(b, &manifest)
 					if err != nil {
-						return ocispec.Descriptor{}, err
+						return err
 					}
 					nextRef := Reference{
 						Registry:   dist.Registry,
@@ -239,7 +258,7 @@ func (c *Client) Pull(ctx context.Context, img Image, opts ...PullOption) ([]Pul
 					}
 					nextDist, err := NewDistributionPath(nextRef, DistributionKindBlob, dist.Scheme, http.MethodGet, nil)
 					if err != nil {
-						return ocispec.Descriptor{}, err
+						return err
 					}
 					queue = append(queue, nextDist)
 					for _, layer := range manifest.Layers {
@@ -250,28 +269,25 @@ func (c *Client) Pull(ctx context.Context, img Image, opts ...PullOption) ([]Pul
 						}
 						nextDist, err := NewDistributionPath(nextRef, DistributionKindBlob, dist.Scheme, http.MethodGet, nil)
 						if err != nil {
-							return ocispec.Descriptor{}, err
+							return err
 						}
 						queue = append(queue, nextDist)
 					}
 				}
+				if imgDist == dist {
+					err = w.Root(ctx, img, desc)
+					if err != nil {
+						return err
+					}
+				}
 			}
-			return desc, nil
+			return nil
 		}()
 		if err != nil {
-			return nil, err
+			return err
 		}
-
-		metric := PullMetric{
-			Digest:        desc.Digest,
-			Duration:      time.Since(start),
-			ContentType:   desc.MediaType,
-			ContentLength: desc.Size,
-		}
-		pullMetrics = append(pullMetrics, metric)
 	}
-
-	return pullMetrics, nil
+	return nil
 }
 
 func (c *Client) Fetch(ctx context.Context, dist DistributionPath, opts ...FetchOption) (io.ReadCloser, ocispec.Descriptor, error) {
@@ -305,12 +321,14 @@ func (c *Client) Fetch(ctx context.Context, dist DistributionPath, opts ...Fetch
 			return resilient.Unrecoverable(err)
 		}
 		httpx.CopyHeader(req.Header, cfg.Header)
-		req.SetBasicAuth(cfg.Username, cfg.Password)
 		req.Header.Set(httpx.HeaderUserAgent, "spegel")
 		req.Header.Add(httpx.HeaderAccept, ocispec.MediaTypeImageManifest)
 		req.Header.Add(httpx.HeaderAccept, images.MediaTypeDockerSchema2Manifest)
 		req.Header.Add(httpx.HeaderAccept, ocispec.MediaTypeImageIndex)
 		req.Header.Add(httpx.HeaderAccept, images.MediaTypeDockerSchema2ManifestList)
+		if cfg.Userinfo != nil {
+			req.Header.Set(httpx.HeaderAuthorization, httpx.UserinfoHeaderValue(*cfg.Userinfo))
+		}
 		if dist.Range != nil {
 			req.Header.Add(httpx.HeaderRange, dist.Range.String())
 		}

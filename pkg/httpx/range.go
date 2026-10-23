@@ -92,6 +92,26 @@ func (rng Range) String() string {
 	}
 }
 
+// Clone returns a deep copy of the range.
+func (rng *Range) Clone() *Range {
+	if rng == nil {
+		return nil
+	}
+	var start, end *int64
+	if rng.Start != nil {
+		v := *rng.Start
+		start = &v
+	}
+	if rng.End != nil {
+		v := *rng.End
+		end = &v
+	}
+	return &Range{
+		Start: start,
+		End:   end,
+	}
+}
+
 // ContentRange represents a content range header.
 type ContentRange struct {
 	Start int64
@@ -118,6 +138,12 @@ func ContentRangeFromRange(rng Range, size int64) (ContentRange, error) {
 			Size:  size,
 		}
 		return crng, nil
+	}
+
+	// A start at or beyond the content size is out of bounds for every
+	// offset form below.
+	if *rng.Start >= size {
+		return ContentRange{}, fmt.Errorf("start %d is out of bounds for size %d", *rng.Start, size)
 	}
 
 	// Offset with unknown size.

@@ -6,7 +6,7 @@
 # rather than the oss/kubernetes windows-host-process-containers-base-image
 # v1.0.0 (which targets Server 2019 and fails with
 # "hcsshim::ImportLayer ... configuration registry database is corrupt").
-FROM mcr.microsoft.com/windows/nanoserver:ltsc2022
+FROM mcr.microsoft.com/windows/nanoserver:ltsc2022@sha256:32729e1cdc6718c90952375e9bbae2b2c5d38f41ceb50a693fc2383b76df28fd
 # HostProcess containers run the entrypoint on the HOST, not inside a
 # container chroot. Absolute paths like `C:\spegel\spegel.exe` look under the
 # host's C:\ (missing). Kubelet sets CWD to $CONTAINER_SANDBOX_MOUNT_POINT

@@ -9,7 +9,7 @@ import (
 
 	digest "github.com/opencontainers/go-digest"
 
-	"github.com/spegel-org/spegel/internal/option"
+	"github.com/kvick-org/pkg/option"
 )
 
 const (
@@ -43,6 +43,14 @@ func (i Image) TagName() (string, bool) {
 		return "", false
 	}
 	return fmt.Sprintf("%s/%s:%s", i.Registry, i.Repository, i.Tag), true
+}
+
+// DigestName returns the full tag reference string if digest is set.
+func (i Image) DigestName() (string, bool) {
+	if i.Digest == "" {
+		return "", false
+	}
+	return fmt.Sprintf("%s/%s@%s", i.Registry, i.Repository, i.Digest), true
 }
 
 // DistributionPath returns the distribution path for the images top layer.

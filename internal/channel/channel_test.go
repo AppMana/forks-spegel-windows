@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/go-openapi/testify/v2/require"
 )
 
 func TestMerge(t *testing.T) {
@@ -41,5 +41,5 @@ func TestMerge(t *testing.T) {
 	<-waitCtx.Done()
 
 	expected := []int{1, 2, 3, 4, 5, 6}
-	require.ElementsMatch(t, expected, results)
+	require.ElementsMatchT(t, expected, results)
 }

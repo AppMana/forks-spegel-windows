@@ -1,0 +1,41 @@
+name: backport
+on:
+  pull_request_target:
+    types: [closed, labeled]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  pr:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.state == 'closed' && github.event.pull_request.merged && (github.event_name != 'labeled' || startsWith('backport:', github.event.label.name))
+    steps:
+      - name: Generate bot token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: bot
+        with:
+          client-id: ${{ secrets.PORTABOTTY_CLIENT_ID }}
+          private-key: ${{ secrets.PORTABOTTY_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.bot.outputs.token }}
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Create backport PR
+        uses: korthout/backport-action@8560fb503c275d433c56f05a2f64850093baa9f7 # v4.7.0
+        with:
+          github_token: ${{ steps.bot.outputs.token }}
+          label_pattern: '^backport:([^ ]+)$'
+          copy_labels_pattern: '^changelog\/\S+'
+          pull_title: '[${target_branch}] ${pull_title}'
+          pull_description: |-
+            Automated backport to `${target_branch}`, triggered by a label in #${pull_number}.
+          experimental: >
+            {
+              "conflict_resolution": "draft_commit_conflicts"
+            }

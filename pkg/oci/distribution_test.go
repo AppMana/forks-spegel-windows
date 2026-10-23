@@ -6,8 +6,10 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/go-openapi/testify/v2/require"
 	"github.com/opencontainers/go-digest"
-	"github.com/stretchr/testify/require"
+
+	"github.com/spegel-org/spegel/pkg/httpx"
 )
 
 func TestParseDistributionPath(t *testing.T) {
@@ -86,14 +88,14 @@ func TestParseDistributionPath(t *testing.T) {
 			require.NoError(t, err)
 			dist, err := ParseDistributionPath(req)
 			require.NoError(t, err)
-			require.Equal(t, tt.expectedName, dist.Repository)
-			require.Equal(t, tt.expectedDgst, dist.Digest)
-			require.Equal(t, tt.expectedTag, dist.Tag)
-			require.Equal(t, tt.expectedRef, dist.Identifier())
-			require.Equal(t, tt.expectedKind, dist.Kind)
-			require.Equal(t, tt.registry, dist.Registry)
-			require.Equal(t, tt.path, dist.URL().Path)
-			require.Equal(t, tt.registry, dist.URL().Query().Get("ns"))
+			require.EqualT(t, tt.expectedName, dist.Repository)
+			require.EqualT(t, tt.expectedDgst, dist.Digest)
+			require.EqualT(t, tt.expectedTag, dist.Tag)
+			require.EqualT(t, tt.expectedRef, dist.Identifier())
+			require.EqualT(t, tt.expectedKind, dist.Kind)
+			require.EqualT(t, tt.registry, dist.Registry)
+			require.EqualT(t, tt.path, dist.URL().Path)
+			require.EqualT(t, tt.registry, dist.URL().Query().Get("ns"))
 		})
 	}
 }
@@ -160,6 +162,60 @@ func TestParseDistributionPathErrors(t *testing.T) {
 			require.NoError(t, err)
 			_, err = ParseDistributionPath(req)
 			require.EqualError(t, err, tt.expectedError)
+		})
+	}
+}
+
+func TestDistributionPathClone(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		dist DistributionPath
+		want DistributionPath
+	}{
+		{
+			name: "empty distribution path",
+			dist: DistributionPath{},
+			want: DistributionPath{},
+		},
+		{
+			name: "distribution path with range",
+			dist: DistributionPath{
+				Reference: Reference{
+					Registry:   "example.com",
+					Repository: "foo/bar",
+					Tag:        "latest",
+				},
+				Scheme: "https",
+				Kind:   DistributionKindManifest,
+				Range: &httpx.Range{
+					Start: new(int64(0)),
+					End:   new(int64(100)),
+				},
+			},
+			want: DistributionPath{
+				Reference: Reference{
+					Registry:   "example.com",
+					Repository: "foo/bar",
+					Tag:        "latest",
+				},
+				Scheme: "https",
+				Kind:   DistributionKindManifest,
+				Range: &httpx.Range{
+					Start: new(int64(0)),
+					End:   new(int64(100)),
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dist := tt.dist.Clone()
+			require.Equal(t, tt.want, dist)
+			if tt.dist.Range != nil {
+				require.NotSameT(t, tt.want.Range, dist.Range)
+			}
 		})
 	}
 }

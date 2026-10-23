@@ -16,14 +16,6 @@ Read the [getting started](https://spegel.dev/docs/getting-started/) guide to de
 | extraInitContainers | list | `[]` | Add additional initContainers *before* Spegel's own configuration init container to run additional node init configuration tasks |
 | extraVolumes | list | `[]` | Add additional volumes to the daemonset. This can be helpful when adding custom init containers that need host path mounts to different locations than the already configured ones. |
 | fullnameOverride | string | `""` | Overrides the full name of the chart. |
-| grafanaDashboard.annotations | object | `{}` | Annotations to add to the Sidecar configMap or GrafanaDashboard. |
-| grafanaDashboard.enabled | bool | `false` | If true creates a Grafana dashboard. |
-| grafanaDashboard.grafanaOperator.allowCrossNamespaceImport | bool | `true` | If true allows for a Grafana in any namespace to access this GrafanaDashboard. |
-| grafanaDashboard.grafanaOperator.folder | string | `""` | Folder to create the dashboard in. |
-| grafanaDashboard.grafanaOperator.matchLabels | object | `{}` | Selected labels for Grafana instance. |
-| grafanaDashboard.grafanaOperator.resyncPeriod | string | `"10m"` | Resync period for the Grafana operator to check for updates to the dashboard. |
-| grafanaDashboard.labels | object | `{}` | Labels to add to the Sidecar configMap or GrafanaDashboard. |
-| grafanaDashboard.mode | string | `"Sidecar"` | Mode for Grafana dashboard creation. Valid values are `Sidecar` and `GrafanaOperator`. |
 | image.digest | string | `""` | Image digest. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image Pull Policy. |
 | image.repository | string | `"ghcr.io/spegel-org/spegel"` | Image repository. |
@@ -32,6 +24,7 @@ Read the [getting started](https://spegel.dev/docs/getting-started/) guide to de
 | livenessProbe.enabled | bool | `false` | When enabled a liveness probe will be added to the registry. |
 | nameOverride | string | `""` | Overrides the name of the chart. |
 | namespaceOverride | string | `""` | Overrides the namespace where spegel resources are installed. |
+| networkPolicy.enabled | bool | `false` | If true creates a NetworkPolicy that limits libp2p router traffic to Spegel peers in the release namespace. |
 | nodeSelector | object | `{"kubernetes.io/os":"linux"}` | Node selector for pod assignment. |
 | podAnnotations | object | `{}` | Annotations to add to the pod. |
 | podSecurityContext | object | `{}` | Security context for the pod. |
@@ -45,12 +38,9 @@ Read the [getting started](https://spegel.dev/docs/getting-started/) guide to de
 | service.metrics.annotations | object | `{}` | Annotations to add to the metrics service |
 | service.metrics.port | int | `9090` | Port to expose the metrics via the service. |
 | service.registry.annotations | object | `{}` | Annotations to add to the registry service |
-| service.registry.hostPort | int | `30020` | Local host port to expose the registry. |
 | service.registry.nodeIp | string | `""` | Override the NODE_ID environment variable. It defaults to the field status.hostIP |
-| service.registry.nodePort | int | `30021` | Node port to expose the registry via the service. |
+| service.registry.nodePort | int | `30020` | Node port to expose the registry via the service. |
 | service.registry.port | int | `5000` | Port to expose the registry via the service. |
-| service.registry.topologyAwareHintsEnabled | bool | `true` | If true adds topology aware hints annotation to node port service. |
-| service.registry.usePreferSameNodeTrafficDistribution | bool | `false` | Use PreferSameNode traffic distribution on the node port service instead of using an additional mirror registry on a container host port. |
 | service.router.port | int | `5001` | Port to expose the router via the service. |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the service account |
 | serviceAccount.name | string | `""` | The name of the service account to use. If not set and create is true, a name is generated using the fullname template. |

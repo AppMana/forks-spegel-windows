@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/go-openapi/testify/v2/require"
 )
 
 func TestMatchesFilter(t *testing.T) {
@@ -50,7 +50,7 @@ func TestMatchesFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			require.Equal(t, tt.expected, MatchesFilter(tt.ref, tt.filters))
+			require.EqualT(t, tt.expected, MatchesFilter(tt.ref, tt.filters))
 		})
 	}
 }
@@ -85,7 +85,7 @@ func TestFilterForMirroredRegistries(t *testing.T) {
 	filter, err := FilterForMirroredRegistries(registries)
 	require.NoError(t, err)
 	expected := []string{"docker.io", "quay.io", "localhost:5000"}
-	require.Equal(t, expected, filter.Whitelist)
+	require.SliceEqualT(t, expected, filter.Whitelist)
 
 	ref := Reference{
 		Registry:   "localhost:6000",
@@ -93,7 +93,7 @@ func TestFilterForMirroredRegistries(t *testing.T) {
 		Tag:        "bar",
 	}
 	matches := MatchesFilter(ref, []Filter{filter})
-	require.True(t, matches)
+	require.TrueT(t, matches)
 
 	ref = Reference{
 		Registry:   "localhost:5000",
@@ -101,7 +101,7 @@ func TestFilterForMirroredRegistries(t *testing.T) {
 		Tag:        "bar",
 	}
 	matches = MatchesFilter(ref, []Filter{filter})
-	require.False(t, matches)
+	require.FalseT(t, matches)
 
 	ref = Reference{
 		Registry:   "docker.io",
@@ -109,21 +109,21 @@ func TestFilterForMirroredRegistries(t *testing.T) {
 		Tag:        "bar",
 	}
 	matches = MatchesFilter(ref, []Filter{filter})
-	require.False(t, matches)
+	require.FalseT(t, matches)
 }
 
 func TestParseRegistries(t *testing.T) {
 	t.Parallel()
 
 	registries := []string{"https://docker.io", "_default", "http://localhost:9090"}
-	rus, err := parseRegistries(registries, true)
+	rus, err := ParseRegistries(registries, true)
 	require.NoError(t, err)
 	strs := []string{}
 	for _, ru := range rus {
 		strs = append(strs, ru.String())
 	}
 	expected := []string{"https://docker.io", "//_default", "http://localhost:9090"}
-	require.Equal(t, expected, strs)
+	require.SliceEqualT(t, expected, strs)
 
 	//nolint: govet // Prioritize readability in tests.
 	fail := []struct {
@@ -149,7 +149,7 @@ func TestParseRegistries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := parseRegistries(tt.registries, tt.allowWildcard)
+			_, err := ParseRegistries(tt.registries, tt.allowWildcard)
 			require.EqualError(t, err, tt.expected)
 		})
 	}
@@ -165,10 +165,6 @@ func TestValidateRegistryURL(t *testing.T) {
 		{
 			urlStr:   "ftp://docker.io",
 			expected: "invalid registry url scheme must be http or https: ftp://docker.io",
-		},
-		{
-			urlStr:   "https://docker.io/foo/bar",
-			expected: "invalid registry url path has to be empty: https://docker.io/foo/bar",
 		},
 		{
 			urlStr:   "https://docker.io?foo=bar",
