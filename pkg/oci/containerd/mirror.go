@@ -9,8 +9,8 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"text/template"
 
@@ -73,7 +73,7 @@ func AddMirrorConfiguration(ctx context.Context, configPath string, mirroredRegi
 			}
 			if existingHosts != "" {
 				// If we are prepending we also want to keep files like certificates that may be referenced.
-				backupRegDir := path.Join(configPath, backupDir, mr.Host)
+				backupRegDir := filepath.Join(configPath, backupDir, registryDirectory(mr.Host))
 				err = filepath.WalkDir(backupRegDir, func(path string, d fs.DirEntry, err error) error {
 					if err != nil {
 						return err
@@ -93,7 +93,7 @@ func AddMirrorConfiguration(ctx context.Context, configPath string, mirroredRegi
 					if err != nil {
 						return err
 					}
-					dstPath := filepath.Join(configPath, mr.Host, relPath)
+					dstPath := filepath.Join(configPath, registryDirectory(mr.Host), relPath)
 					err = os.MkdirAll(filepath.Dir(dstPath), 0o755)
 					if err != nil {
 						return err
@@ -118,7 +118,7 @@ func AddMirrorConfiguration(ctx context.Context, configPath string, mirroredRegi
 			}
 
 		}
-		fp := path.Join(configPath, mr.Host, "hosts.toml")
+		fp := filepath.Join(configPath, registryDirectory(mr.Host), "hosts.toml")
 		err = os.MkdirAll(filepath.Dir(fp), 0o755)
 		if err != nil {
 			return err
@@ -140,7 +140,7 @@ func CleanupMirrorConfiguration(ctx context.Context, configPath string) error {
 	log := logr.FromContextOrDiscard(ctx)
 
 	// If backup directory does not exist it means mirrors was never configured or cleanup has already run.
-	backupDirPath := path.Join(configPath, backupDir)
+	backupDirPath := filepath.Join(configPath, backupDir)
 	ok, err := dirExists(backupDirPath)
 	if err != nil {
 		return err
@@ -162,8 +162,8 @@ func CleanupMirrorConfiguration(ctx context.Context, configPath string) error {
 		return err
 	}
 	for _, fi := range files {
-		oldPath := path.Join(backupDirPath, fi.Name())
-		newPath := path.Join(configPath, fi.Name())
+		oldPath := filepath.Join(backupDirPath, fi.Name())
+		newPath := filepath.Join(configPath, fi.Name())
 		err := os.Rename(oldPath, newPath)
 		if err != nil {
 			return err
@@ -181,7 +181,7 @@ func CleanupMirrorConfiguration(ctx context.Context, configPath string) error {
 }
 
 func backupConfig(log logr.Logger, configPath string) error {
-	backupDirPath := path.Join(configPath, backupDir)
+	backupDirPath := filepath.Join(configPath, backupDir)
 	ok, err := dirExists(backupDirPath)
 	if err != nil {
 		return err
@@ -198,8 +198,8 @@ func backupConfig(log logr.Logger, configPath string) error {
 		return err
 	}
 	for _, fi := range files {
-		oldPath := path.Join(configPath, fi.Name())
-		newPath := path.Join(backupDirPath, fi.Name())
+		oldPath := filepath.Join(configPath, fi.Name())
+		newPath := filepath.Join(backupDirPath, fi.Name())
 		err := os.Rename(oldPath, newPath)
 		if err != nil {
 			return err
@@ -218,7 +218,7 @@ func clearConfig(configPath string) error {
 		if fi.Name() == backupDir {
 			continue
 		}
-		filePath := path.Join(configPath, fi.Name())
+		filePath := filepath.Join(configPath, fi.Name())
 		err := os.RemoveAll(filePath)
 		if err != nil {
 			return err
@@ -274,7 +274,7 @@ Authorization = '{{ $authorization }}'
 }
 
 func existingHosts(configPath string, parsedMirrorRegistry url.URL) (string, error) {
-	fp := path.Join(configPath, backupDir, parsedMirrorRegistry.Host, "hosts.toml")
+	fp := filepath.Join(configPath, backupDir, registryDirectory(parsedMirrorRegistry.Host), "hosts.toml")
 	b, err := os.ReadFile(fp)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
@@ -332,7 +332,7 @@ func existingHosts(configPath string, parsedMirrorRegistry url.URL) (string, err
 }
 
 func existingHostsMode(configPath string, parsedMirrorRegistry url.URL) (fs.FileMode, error) {
-	fp := path.Join(configPath, backupDir, parsedMirrorRegistry.Host, "hosts.toml")
+	fp := filepath.Join(configPath, backupDir, registryDirectory(parsedMirrorRegistry.Host), "hosts.toml")
 	info, err := os.Stat(fp)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0o644, nil
@@ -352,4 +352,17 @@ func dirExists(path string) (bool, error) {
 		return false, err
 	}
 	return info.IsDir(), nil
+}
+
+// registryDirectory follows containerd's Windows host-directory lookup:
+// registry:port becomes registry_port_, with remaining colons removed.
+// Registry URLs themselves retain their original authority.
+func registryDirectory(host string) string {
+	if runtime.GOOS != "windows" {
+		return host
+	}
+	if index := strings.LastIndex(host, ":"); index > 0 {
+		host = host[:index] + "_" + host[index+1:] + "_"
+	}
+	return strings.ReplaceAll(host, ":", "")
 }

@@ -6,8 +6,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
+	registryconfig "github.com/containerd/containerd/v2/core/remotes/docker/config"
 	"github.com/go-logr/logr"
 	"github.com/go-openapi/testify/v2/require"
 
@@ -363,7 +366,7 @@ Authorization = 'Basic aGVsbG86d29ybGQ='`,
 				require.NoError(t, err)
 			}
 			for k, v := range tt.existingFiles {
-				path := filepath.Join(registryConfigPath, k)
+				path := filepath.Join(registryConfigPath, fixtureMirrorPath(k))
 				err := os.MkdirAll(filepath.Dir(path), 0o755)
 				require.NoError(t, err)
 				err = os.WriteFile(path, []byte(v), 0o644)
@@ -374,14 +377,18 @@ Authorization = 'Basic aGVsbG86d29ybGQ='`,
 			ok, err := dirExists(filepath.Join(registryConfigPath, "_backup"))
 			require.NoError(t, err)
 			require.TrueT(t, ok)
-			seenExpectedFiles := maps.Clone(tt.expectedFiles)
+			expectedFiles := make(map[string]string, len(tt.expectedFiles))
+			for name, value := range tt.expectedFiles {
+				expectedFiles[fixtureMirrorPath(name)] = value
+			}
+			seenExpectedFiles := maps.Clone(expectedFiles)
 			err = filepath.Walk(registryConfigPath, func(path string, fi iofs.FileInfo, _ error) error {
 				if fi.IsDir() {
 					return nil
 				}
 				relPath, err := filepath.Rel(registryConfigPath, path)
 				require.NoError(t, err)
-				expectedContent, ok := tt.expectedFiles[relPath]
+				expectedContent, ok := expectedFiles[relPath]
 				require.TrueT(t, ok, relPath)
 				delete(seenExpectedFiles, relPath)
 				b, err := os.ReadFile(path)
@@ -435,7 +442,7 @@ Authorization = ['Basic Zm9vOmJhcg==']`
 			t.Parallel()
 
 			registryConfigPath := filepath.Join(t.TempDir(), "certs.d")
-			fp := filepath.Join(registryConfigPath, "foo.bar:5000", "hosts.toml")
+			fp := filepath.Join(registryConfigPath, fixtureMirrorPath("foo.bar:5000/hosts.toml"))
 			if tt.existingContent != "" {
 				err := os.MkdirAll(filepath.Dir(fp), 0o755)
 				require.NoError(t, err)
@@ -446,7 +453,12 @@ Authorization = ['Basic Zm9vOmJhcg==']`
 			require.NoError(t, err)
 			info, err := os.Stat(fp)
 			require.NoError(t, err)
-			require.EqualT(t, tt.expectedMode, info.Mode().Perm())
+			if runtime.GOOS == "windows" {
+				// Windows exposes the writable bit, not POSIX permission modes.
+				require.EqualT(t, iofs.FileMode(0o666), info.Mode().Perm())
+			} else {
+				require.EqualT(t, tt.expectedMode, info.Mode().Perm())
+			}
 		})
 	}
 }
@@ -557,5 +569,32 @@ func TestCleanupMirrorConfiguration(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, files, 1)
 		require.EqualT(t, "data.txt", files[0].Name())
+	}
+}
+
+func fixtureMirrorPath(name string) string {
+	if runtime.GOOS == "windows" {
+		name = strings.ReplaceAll(name, "foo.bar:5000", "foo.bar_5000_")
+	}
+	return filepath.FromSlash(name)
+}
+
+func TestMirrorDirectoryResolvedByContainerd(t *testing.T) {
+	t.Parallel()
+	for _, authority := range []string{"registry.example:5443", "[::1]:5443", "registry.example"} {
+		t.Run(authority, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			registryURL := "https://" + authority
+			err := AddMirrorConfiguration(t.Context(), root, []string{registryURL}, []string{"http://127.0.0.1:5000"}, true, false, nil)
+			require.NoError(t, err)
+			// Use containerd's resolver to verify it can discover the generated
+			// directory; URL authorities must retain their original port.
+			directory, err := registryconfig.HostDirFromRoot(root)(authority)
+			require.NoError(t, err)
+			contents, err := os.ReadFile(filepath.Join(directory, "hosts.toml"))
+			require.NoError(t, err)
+			require.Contains(t, string(contents), "server = '"+registryURL+"'")
+		})
 	}
 }
