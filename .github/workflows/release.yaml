@@ -73,3 +73,9 @@ jobs:
       - name: Sign the Helm chart with Cosign
         run: |
           cosign sign --yes ghcr.io/appmana/helm-charts/spegel@${{ steps.helm.outputs.DIGEST }}
+  windows:
+    needs: [release]
+    uses: ./.github/workflows/release-windows.yaml
+    permissions:
+      contents: read
+      packages: write

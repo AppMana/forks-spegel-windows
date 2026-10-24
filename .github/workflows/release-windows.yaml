@@ -1,8 +1,6 @@
 name: release-windows
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,14 +9,21 @@ jobs:
   # Windows image build runs on a GitHub-hosted windows-latest runner which
   # ships with Docker Engine in Windows Container (WCOW) mode — required to
   # build images derived from the Windows HostProcess base image. The Linux
-  # multi-arch manifest is produced by release.yaml; a follow-up
-  # windows-manifest job here assembles the combined manifest list.
+  # multi-arch manifest is produced first by release.yaml, which calls this
+  # workflow only after the Linux release job succeeds.
   windows-image:
     runs-on: windows-latest
     defaults:
       run:
         shell: pwsh
     steps:
+      - name: Require a release tag
+        shell: bash
+        run: |
+          if [[ $GITHUB_REF != refs/tags/v* ]]; then
+            echo "Run this workflow on an existing release tag." >&2
+            exit 1
+          fi
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
       - name: Setup Go
