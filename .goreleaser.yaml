@@ -1,5 +1,7 @@
 version: 2
 project_name: spegel
+changelog:
+  disable: true
 before:
   hooks:
     - go mod tidy
@@ -19,7 +21,6 @@ builds:
       - -w
     flags:
       - -trimpath
-      - -a
     no_unique_dist_dir: true
     binary: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}/{{ .ProjectName }}"
 archives:

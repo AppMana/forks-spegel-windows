@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
+	"github.com/go-openapi/testify/v2/require"
 )
 
 func TestFormatBytes(t *testing.T) {
@@ -32,7 +32,7 @@ func TestFormatBytes(t *testing.T) {
 			t.Parallel()
 
 			result := formatBytes(tt.size)
-			require.Equal(t, tt.expected, result)
+			require.EqualT(t, tt.expected, result)
 		})
 	}
 }
@@ -66,7 +66,7 @@ func TestDuration(t *testing.T) {
 			t.Parallel()
 
 			result := formatDuration(tt.duration)
-			require.Equal(t, tt.expected, result)
+			require.EqualT(t, tt.expected, result)
 		})
 	}
 }

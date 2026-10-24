@@ -6,18 +6,23 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
+	"io"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"github.com/spegel-org/spegel/internal/option"
+	"github.com/kvick-org/pkg/option"
+
 	"github.com/spegel-org/spegel/pkg/httpx"
 	"github.com/spegel-org/spegel/pkg/oci"
 	"github.com/spegel-org/spegel/pkg/registry"
 	"github.com/spegel-org/spegel/pkg/routing"
+	"github.com/spegel-org/spegel/pkg/routing/libp2p"
 )
 
 //go:embed templates/*
@@ -25,7 +30,6 @@ var templatesFS embed.FS
 
 type WebConfig struct {
 	OCIClient *oci.Client
-	Filters   []oci.Filter
 }
 
 type WebOption = option.Option[WebConfig]
@@ -37,24 +41,16 @@ func WithOCIClient(ociClient *oci.Client) WebOption {
 	}
 }
 
-func WithRegistryFilters(filters []oci.Filter) WebOption {
-	return func(cfg *WebConfig) error {
-		cfg.Filters = filters
-		return nil
-	}
-}
-
 type Web struct {
 	mirror    *url.URL
-	router    *routing.P2PRouter
+	router    *libp2p.Router
 	ociClient *oci.Client
-	ociStore  oci.Store
+	imgLister oci.ImageLister
 	tmpls     *template.Template
 	reg       *registry.Registry
-	filters   []oci.Filter
 }
 
-func NewWeb(router *routing.P2PRouter, ociStore oci.Store, reg *registry.Registry, mirror *url.URL, opts ...WebOption) (*Web, error) {
+func NewWeb(router *libp2p.Router, imgLister oci.ImageLister, reg *registry.Registry, mirror *url.URL, opts ...WebOption) (*Web, error) {
 	cfg := WebConfig{}
 	err := option.Apply(&cfg, opts...)
 	if err != nil {
@@ -80,20 +76,19 @@ func NewWeb(router *routing.P2PRouter, ociStore oci.Store, reg *registry.Registr
 	return &Web{
 		router:    router,
 		ociClient: cfg.OCIClient,
-		ociStore:  ociStore,
-		filters:   cfg.Filters,
+		imgLister: imgLister,
 		tmpls:     tmpls,
 		reg:       reg,
 		mirror:    mirror,
 	}, nil
 }
 
-func (w *Web) Handler(log logr.Logger) http.Handler {
+func (w *Web) Handler(log logr.Logger) *httpx.ServeMux {
 	m := httpx.NewServeMux(log)
-	m.Handle("GET /debug/web/", w.indexHandler)
-	m.Handle("GET /debug/web/metadata", w.metaDataHandler)
-	m.Handle("GET /debug/web/stats", w.statsHandler)
-	m.Handle("GET /debug/web/measure", w.measureHandler)
+	m.HandleFunc("GET /debug/web/", w.indexHandler)
+	m.HandleFunc("GET /debug/web/metadata", w.metaDataHandler)
+	m.HandleFunc("GET /debug/web/stats", w.statsHandler)
+	m.HandleFunc("GET /debug/web/measure", w.measureHandler)
 	return m
 }
 
@@ -138,17 +133,12 @@ type statsData struct {
 func (w *Web) statsHandler(rw httpx.ResponseWriter, req *http.Request) {
 	data := statsData{}
 
-	images, err := w.ociStore.ListImages(req.Context())
+	imgs, err := w.imgLister.ListImages(req.Context())
 	if err != nil {
 		rw.WriteError(http.StatusInternalServerError, err)
 		return
 	}
-	for _, img := range images {
-		if oci.MatchesFilter(img.Reference, w.filters) {
-			continue
-		}
-		data.Images = append(data.Images, img)
-	}
+	data.Images = imgs
 
 	stats := w.reg.Stats()
 	mirrorLastSuccess := stats.MirrorLastSuccess.Load()
@@ -180,7 +170,7 @@ type pullResult struct {
 }
 
 type measureResult struct {
-	LookupResults []routing.LookupResult
+	LookupResults []libp2p.LookupResult
 	PullResults   []pullResult
 	PeerDuration  time.Duration
 	PullDuration  time.Duration
@@ -206,17 +196,18 @@ func (w *Web) measureHandler(rw httpx.ResponseWriter, req *http.Request) {
 	lookupRes, err := w.router.Measure(lookupCtx, img.Identifier())
 	if err != nil {
 		rw.WriteError(http.StatusInternalServerError, NewHTMLResponseError(err))
+		return
 	}
 	res.LookupResults = lookupRes
 
 	if len(res.LookupResults) > 0 {
-		// Pull the image and measure performance.
-		pullMetrics, err := w.ociClient.Pull(req.Context(), img, oci.WithPullMirror(w.mirror))
+		mw := &MetricWriter{}
+		err := w.ociClient.Pull(req.Context(), img, mw, oci.WithPullMirror(w.mirror))
 		if err != nil {
 			rw.WriteError(http.StatusInternalServerError, NewHTMLResponseError(err))
 			return
 		}
-		for _, metric := range pullMetrics {
+		for _, metric := range mw.Metrics() {
 			res.PullDuration += metric.Duration
 			res.PullSize += metric.ContentLength
 			res.PullResults = append(res.PullResults, pullResult{
@@ -229,4 +220,40 @@ func (w *Web) measureHandler(rw httpx.ResponseWriter, req *http.Request) {
 	}
 
 	httpx.RenderTemplate(rw, w.tmpls.Lookup("measure.html"), res)
+}
+
+type PullMetric struct {
+	Digest        digest.Digest
+	ContentType   string
+	ContentLength int64
+	Duration      time.Duration
+}
+
+var _ oci.ImageWriter = &MetricWriter{}
+
+type MetricWriter struct {
+	metrics []PullMetric
+}
+
+func (mw *MetricWriter) Metrics() []PullMetric {
+	return mw.metrics
+}
+func (*MetricWriter) Root(ctx context.Context, img oci.Image, desc ocispec.Descriptor) error {
+	return nil
+}
+
+func (mw *MetricWriter) Write(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error {
+	start := time.Now()
+	_, err := io.Copy(io.Discard, r)
+	if err != nil {
+		return err
+	}
+	metric := PullMetric{
+		Digest:        desc.Digest,
+		Duration:      time.Since(start),
+		ContentType:   desc.MediaType,
+		ContentLength: desc.Size,
+	}
+	mw.metrics = append(mw.metrics, metric)
+	return nil
 }

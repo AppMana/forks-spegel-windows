@@ -8,6 +8,8 @@ import (
 // TestApplyEnvDefaults_SetsUnsetKeys verifies that ApplyEnvDefaults populates
 // env vars that the user hasn't set. Runs on both Linux and Windows — the
 // exact values differ per OS but the behavioral guarantee is identical.
+//
+//nolint:paralleltest // Mutates process environment; parallel execution is unsafe.
 func TestApplyEnvDefaults_SetsUnsetKeys(t *testing.T) {
 	keys := []string{
 		"CONTAINERD_SOCK",
@@ -16,7 +18,9 @@ func TestApplyEnvDefaults_SetsUnsetKeys(t *testing.T) {
 	}
 	for _, k := range keys {
 		t.Setenv(k, "") // Setenv with empty then Unsetenv to reset cleanly
-		os.Unsetenv(k)
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatal(err)
+		}
 	}
 	ApplyEnvDefaults()
 	d := Defaults()

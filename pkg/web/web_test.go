@@ -1,51 +1,59 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
+	"github.com/go-openapi/testify/v2/require"
 
 	"github.com/spegel-org/spegel/pkg/httpx"
 	"github.com/spegel-org/spegel/pkg/oci"
 	"github.com/spegel-org/spegel/pkg/registry"
 	"github.com/spegel-org/spegel/pkg/routing"
+	"github.com/spegel-org/spegel/pkg/routing/libp2p"
+	"github.com/spegel-org/spegel/pkg/store/storetest"
 )
+
+type imageLister struct {
+}
+
+func (i imageLister) ListImages(ctx context.Context) ([]oci.Image, error) {
+	return nil, nil
+}
 
 func TestWeb(t *testing.T) {
 	t.Parallel()
 
-	router, err := routing.NewP2PRouter(t.Context(), ":0", nil, "5000")
+	router, err := libp2p.NewRouter(t.Context(), ":0", nil, routing.PeerMetadata{RegistryPort: 5000})
 	require.NoError(t, err)
 
-	ociStore := oci.NewMemory()
-
-	reg, err := registry.NewRegistry(ociStore, router)
+	reg, err := registry.NewRegistry(storetest.NewProvider(nil, nil), router)
 	require.NoError(t, err)
 
-	w, err := NewWeb(router, ociStore, reg, nil)
+	w, err := NewWeb(router, imageLister{}, reg, nil)
 	require.NoError(t, err)
 	require.NotNil(t, w.tmpls)
 
 	rw, rec := httpx.NewRecorder()
 	w.indexHandler(rw, nil)
 	resp := rec.Result()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.EqualT(t, http.StatusOK, resp.StatusCode)
 
 	rw, rec = httpx.NewRecorder()
 	w.metaDataHandler(rw, nil)
 	resp = rec.Result()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Equal(t, httpx.ContentTypeJSON, resp.Header.Get(httpx.HeaderContentType))
+	require.EqualT(t, http.StatusOK, resp.StatusCode)
+	require.EqualT(t, httpx.ContentTypeJSON, resp.Header.Get(httpx.HeaderContentType))
 
 	rw, rec = httpx.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	w.statsHandler(rw, req)
 	resp = rec.Result()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.EqualT(t, http.StatusOK, resp.StatusCode)
 
 	stats := statsData{
 		LocalAddresses:    []netip.Addr{{}},
@@ -56,7 +64,7 @@ func TestWeb(t *testing.T) {
 	rw, rec = httpx.NewRecorder()
 	httpx.RenderTemplate(rw, w.tmpls.Lookup("stats.html"), stats)
 	resp = rec.Result()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.EqualT(t, http.StatusOK, resp.StatusCode)
 
 	rw, rec = httpx.NewRecorder()
 	req = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
@@ -65,14 +73,14 @@ func TestWeb(t *testing.T) {
 	req.URL.RawQuery = query.Encode()
 	w.measureHandler(rw, req)
 	resp = rec.Result()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.EqualT(t, http.StatusOK, resp.StatusCode)
 
 	measure := measureResult{
-		LookupResults: []routing.LookupResult{{}},
+		LookupResults: []libp2p.LookupResult{{}},
 		PullResults:   []pullResult{{}},
 	}
 	rw, rec = httpx.NewRecorder()
 	httpx.RenderTemplate(rw, w.tmpls.Lookup("measure.html"), measure)
 	resp = rec.Result()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.EqualT(t, http.StatusOK, resp.StatusCode)
 }

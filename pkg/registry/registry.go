@@ -17,13 +17,14 @@ import (
 	"github.com/go-logr/logr"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"github.com/spegel-org/spegel/internal/option"
-	"github.com/spegel-org/spegel/internal/ptr"
+	"github.com/kvick-org/pkg/option"
+
 	"github.com/spegel-org/spegel/internal/resilient"
 	"github.com/spegel-org/spegel/pkg/httpx"
 	"github.com/spegel-org/spegel/pkg/metrics"
 	"github.com/spegel-org/spegel/pkg/oci"
 	"github.com/spegel-org/spegel/pkg/routing"
+	"github.com/spegel-org/spegel/pkg/store"
 )
 
 const (
@@ -34,8 +35,7 @@ const (
 
 type RegistryConfig struct {
 	OCIClient      *oci.Client
-	Username       string
-	Password       string
+	Userinfo       *url.Userinfo
 	Filters        []oci.Filter
 	ResolveTimeout time.Duration
 	ResolveRetries int
@@ -71,10 +71,9 @@ func WithOCIClient(ociClient *oci.Client) RegistryOption {
 	}
 }
 
-func WithBasicAuth(username, password string) RegistryOption {
+func WithUserinfo(userinfo *url.Userinfo) RegistryOption {
 	return func(cfg *RegistryConfig) error {
-		cfg.Username = username
-		cfg.Password = password
+		cfg.Userinfo = userinfo
 		return nil
 	}
 }
@@ -86,18 +85,17 @@ type Statistics struct {
 type Registry struct {
 	bufferPool     *sync.Pool
 	hedger         *resilient.Hedger
-	ociStore       oci.Store
+	provider       store.Provider
 	ociClient      *oci.Client
 	router         routing.Router
-	username       string
-	password       string
+	userinfo       *url.Userinfo
 	filters        []oci.Filter
 	resolveTimeout time.Duration
 	resolveRetries int
 	stats          Statistics
 }
 
-func NewRegistry(ociStore oci.Store, router routing.Router, opts ...RegistryOption) (*Registry, error) {
+func NewRegistry(provider store.Provider, router routing.Router, opts ...RegistryOption) (*Registry, error) {
 	cfg := RegistryConfig{
 		ResolveRetries: 3,
 		ResolveTimeout: 20 * time.Millisecond,
@@ -122,14 +120,13 @@ func NewRegistry(ociStore oci.Store, router routing.Router, opts ...RegistryOpti
 	}
 
 	r := &Registry{
-		ociStore:       ociStore,
+		provider:       provider,
 		router:         router,
 		ociClient:      cfg.OCIClient,
 		resolveRetries: cfg.ResolveRetries,
 		filters:        cfg.Filters,
 		resolveTimeout: cfg.ResolveTimeout,
-		username:       cfg.Username,
-		password:       cfg.Password,
+		userinfo:       cfg.Userinfo,
 		bufferPool:     bufferPool,
 		stats:          Statistics{},
 		hedger:         resilient.NewHedger([]float64{80, 85, 90}, 50*time.Millisecond),
@@ -139,10 +136,10 @@ func NewRegistry(ociStore oci.Store, router routing.Router, opts ...RegistryOpti
 
 func (r *Registry) Handler(log logr.Logger) *httpx.ServeMux {
 	m := httpx.NewServeMux(log)
-	m.Handle("GET /readyz", r.readyHandler)
-	m.Handle("GET /livez", r.livenessHandler)
-	m.Handle("GET /v2/", r.registryHandler)
-	m.Handle("HEAD /v2/", r.registryHandler)
+	m.HandleFunc("GET /readyz", r.readyHandler)
+	m.HandleFunc("GET /livez", r.livenessHandler)
+	m.HandleFunc("GET /v2/", r.registryHandler)
+	m.HandleFunc("HEAD /v2/", r.registryHandler)
 	return m
 }
 
@@ -175,13 +172,10 @@ func (r *Registry) registryHandler(rw httpx.ResponseWriter, req *http.Request) {
 	rw.SetAttrs(HandlerAttrKey, "registry")
 
 	// Check basic authentication
-	if r.username != "" || r.password != "" {
-		username, password, _ := req.BasicAuth()
-		if r.username != username || r.password != password {
-			respErr := oci.NewDistributionError(oci.ErrCodeUnauthorized, "invalid credentials", nil)
-			rw.WriteError(http.StatusUnauthorized, respErr)
-			return
-		}
+	if r.userinfo != nil && !httpx.AuthenticateUserinfo(req.BasicAuth, *r.userinfo) {
+		respErr := oci.NewDistributionError(oci.ErrCodeUnauthorized, "invalid credentials", nil)
+		rw.WriteError(http.StatusUnauthorized, respErr)
+		return
 	}
 
 	// Quickly return 200 for /v2 to indicate that registry supports v2.
@@ -211,9 +205,9 @@ func (r *Registry) registryHandler(rw httpx.ResponseWriter, req *http.Request) {
 		// If content is present locally we should skip the mirroring and just serve it.
 		var ociErr error
 		if dist.Digest == "" {
-			_, ociErr = r.ociStore.Resolve(req.Context(), dist.Identifier())
+			_, ociErr = r.provider.Resolve(req.Context(), dist.Identifier())
 		} else {
-			_, ociErr = r.ociStore.Descriptor(req.Context(), dist.Digest)
+			_, ociErr = r.provider.Descriptor(req.Context(), dist.Digest)
 		}
 		if ociErr != nil {
 			r.mirrorHandler(req.Context(), dist, rw)
@@ -266,18 +260,6 @@ func (r *Registry) mirrorHandler(ctx context.Context, dist oci.DistributionPath,
 		return
 	}
 
-	// Make copy to not modify distribution range.
-	if dist.Range != nil {
-		rng := &httpx.Range{}
-		if dist.Range.Start != nil {
-			rng.Start = ptr.To(*dist.Range.Start)
-		}
-		if dist.Range.End != nil {
-			rng.End = ptr.To(*dist.Range.End)
-		}
-		dist.Range = rng
-	}
-
 	// Retry requests until success or timeout.
 	for {
 		done := func() bool {
@@ -326,13 +308,14 @@ func (r *Registry) mirrorHandler(ctx context.Context, dist oci.DistributionPath,
 					log.Error(err, "copying of manifest data failed")
 					return true
 				case oci.DistributionKindBlob:
+					dist = dist.Clone()
 					if dist.Range == nil {
 						dist.Range = &httpx.Range{
-							Start: ptr.To(int64(0)),
-							End:   ptr.To(res.desc.Size - 1),
+							Start: new(int64(0)),
+							End:   new(res.desc.Size - 1),
 						}
 					}
-					dist.Range.Start = ptr.To(*dist.Range.Start + n)
+					dist.Range.Start = new(*dist.Range.Start + n)
 					log.Error(err, "copying of blob data failed")
 					return false
 				}
@@ -383,6 +366,8 @@ func (r *Registry) raceFetch(ctx context.Context, iterator *routing.Iterator, di
 		}
 	}()
 
+	var raceTimeoutCh <-chan time.Time
+
 	for {
 		// We only want to return early when there are no inflight requests.
 		var idleTimeoutCh <-chan time.Time
@@ -390,6 +375,9 @@ func (r *Registry) raceFetch(ctx context.Context, iterator *routing.Iterator, di
 		if len(fetchCtxs) == 0 {
 			idleTimeoutCh = time.After(r.resolveTimeout)
 			exhaustedCh = iterator.Exhausted()
+		}
+		if len(fetchCtxs) > 0 && raceTimeoutCh == nil {
+			raceTimeoutCh = time.After(max(r.hedger.HighestPercentileDuration()*2, 100*time.Millisecond))
 		}
 
 		select {
@@ -402,6 +390,8 @@ func (r *Registry) raceFetch(ctx context.Context, iterator *routing.Iterator, di
 			return fetchResponse{}, oci.NewDistributionError(errCode, fmt.Sprintf("all request retries exhausted for %s", dist.Identifier()), errDetails)
 		case <-idleTimeoutCh:
 			return fetchResponse{}, oci.NewDistributionError(errCode, fmt.Sprintf("waited too long for new peer with no inflight fetches for %s", dist.Identifier()), errDetails)
+		case <-raceTimeoutCh:
+			return fetchResponse{}, oci.NewDistributionError(errCode, fmt.Sprintf("waited too long for inflight dials to complete for %s", dist.Identifier()), errDetails)
 		case <-fetchCh:
 			peer, ok := iterator.Acquire()
 			if !ok {
@@ -425,7 +415,7 @@ func (r *Registry) raceFetch(ctx context.Context, iterator *routing.Iterator, di
 					fetchOpts := []oci.FetchOption{
 						oci.WithFetchHeader(HeaderSpegelMirrored, "true"),
 						oci.WithFetchMirror(mirror),
-						oci.WithFetchBasicAuth(r.username, r.password),
+						oci.WithFetchUserinfo(r.userinfo),
 					}
 					rc, desc, err := r.ociClient.Fetch(ctx, dist, fetchOpts...)
 					if err != nil {
@@ -492,7 +482,7 @@ func (r *Registry) manifestHandler(ctx context.Context, dist oci.DistributionPat
 	rw.SetAttrs(HandlerAttrKey, "manifest")
 
 	if dist.Digest == "" {
-		dgst, err := r.ociStore.Resolve(ctx, dist.Identifier())
+		dgst, err := r.provider.Resolve(ctx, dist.Identifier())
 		if err != nil {
 			respErr := oci.NewDistributionError(oci.ErrCodeManifestUnknown, fmt.Sprintf("could not get digest for image tag %s", dist.Identifier()), nil)
 			rw.WriteError(http.StatusNotFound, errors.Join(respErr, err))
@@ -500,7 +490,7 @@ func (r *Registry) manifestHandler(ctx context.Context, dist oci.DistributionPat
 		}
 		dist.Digest = dgst
 	}
-	desc, err := r.ociStore.Descriptor(ctx, dist.Digest)
+	desc, err := r.provider.Descriptor(ctx, dist.Digest)
 	if err != nil {
 		respErr := oci.NewDistributionError(oci.ErrCodeManifestUnknown, fmt.Sprintf("could not get manifest %s", dist.Digest), nil)
 		rw.WriteError(http.StatusNotFound, errors.Join(respErr, err))
@@ -521,7 +511,7 @@ func (r *Registry) manifestHandler(ctx context.Context, dist oci.DistributionPat
 		return
 	}
 
-	rc, err := r.ociStore.Open(ctx, dist.Digest)
+	rc, err := r.provider.Open(ctx, dist.Digest)
 	if err != nil {
 		respErr := oci.NewDistributionError(oci.ErrCodeManifestUnknown, fmt.Sprintf("could not get manifest %s", dist.Digest), nil)
 		rw.WriteError(http.StatusNotFound, errors.Join(respErr, err))
@@ -539,7 +529,7 @@ func (r *Registry) manifestHandler(ctx context.Context, dist oci.DistributionPat
 func (r *Registry) blobHandler(ctx context.Context, dist oci.DistributionPath, rw httpx.ResponseWriter) {
 	rw.SetAttrs(HandlerAttrKey, "blob")
 
-	desc, err := r.ociStore.Descriptor(ctx, dist.Digest)
+	desc, err := r.provider.Descriptor(ctx, dist.Digest)
 	if err != nil {
 		respErr := oci.NewDistributionError(oci.ErrCodeBlobUnknown, fmt.Sprintf("could not get blob %s", dist.Digest), nil)
 		rw.WriteError(http.StatusNotFound, errors.Join(respErr, err))
@@ -585,7 +575,7 @@ func (r *Registry) blobHandler(ctx context.Context, dist oci.DistributionPath, r
 		return
 	}
 
-	rc, err := r.ociStore.Open(ctx, dist.Digest)
+	rc, err := r.provider.Open(ctx, dist.Digest)
 	if err != nil {
 		respErr := oci.NewDistributionError(oci.ErrCodeBlobUnknown, fmt.Sprintf("could not get reader for blob %s", dist.Digest), nil)
 		rw.WriteError(http.StatusNotFound, errors.Join(respErr, err))

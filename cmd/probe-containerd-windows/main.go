@@ -17,7 +17,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"time"
@@ -27,13 +29,17 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	sock := `\\.\pipe\containerd-containerd`
 	if len(os.Args) > 1 {
 		sock = os.Args[1]
 	}
 	ns := "k8s.io"
 
-	fmt.Printf("probe: OS=%s ARCH=%s pipe=%s namespace=%s\n", runtime.GOOS, runtime.GOARCH, sock, ns)
+	fmt.Fprintf(os.Stdout, "probe: OS=%s ARCH=%s pipe=%s namespace=%s\n", runtime.GOOS, runtime.GOARCH, sock, ns)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -41,7 +47,7 @@ func main() {
 	c, err := client.New(sock, client.WithDefaultNamespace(ns))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	defer c.Close()
 
@@ -49,23 +55,23 @@ func main() {
 	v, err := c.Version(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "version: %v\n", err)
-		os.Exit(2)
+		return 2
 	}
-	fmt.Printf("containerd version=%s revision=%s\n", v.Version, v.Revision)
+	fmt.Fprintf(os.Stdout, "containerd version=%s revision=%s\n", v.Version, v.Revision)
 
 	// Images list — exercises the same ListImages call Spegel uses.
 	imgs, err := c.ListImages(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "list images: %v\n", err)
-		os.Exit(3)
+		return 3
 	}
-	fmt.Printf("images: %d total\n", len(imgs))
+	fmt.Fprintf(os.Stdout, "images: %d total\n", len(imgs))
 	for i, img := range imgs {
 		if i >= 5 {
-			fmt.Printf("... (%d more)\n", len(imgs)-5)
+			fmt.Fprintf(os.Stdout, "... (%d more)\n", len(imgs)-5)
 			break
 		}
-		fmt.Printf("  %s\n", img.Name())
+		fmt.Fprintf(os.Stdout, "  %s\n", img.Name())
 	}
 
 	// Content store walk — exact call pattern in pkg/oci/containerd.go.
@@ -78,18 +84,23 @@ func main() {
 		return nil
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "content walk: %v\n", err)
-		os.Exit(4)
+		return 4
 	}
-	fmt.Printf("content-store blobs: %d  total=%d bytes\n", count, total)
+	fmt.Fprintf(os.Stdout, "content-store blobs: %d  total=%d bytes\n", count, total)
 
 	// First 5 digest entries for sanity — Spegel uses these as P2P advertisement keys.
 	shown := 0
-	_ = cs.Walk(ctx, func(info content.Info) error {
+	err = cs.Walk(ctx, func(info content.Info) error {
 		if shown >= 5 {
-			return fmt.Errorf("stop")
+			return io.EOF
 		}
-		fmt.Printf("  %s size=%d labels=%v\n", info.Digest, info.Size, info.Labels)
+		fmt.Fprintf(os.Stdout, "  %s size=%d labels=%v\n", info.Digest, info.Size, info.Labels)
 		shown++
 		return nil
 	})
+	if err != nil && !errors.Is(err, io.EOF) {
+		fmt.Fprintf(os.Stderr, "content sample: %v\n", err)
+		return 5
+	}
+	return 0
 }

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/go-openapi/testify/v2/require"
 )
 
 func TestCopyHeader(t *testing.T) {
@@ -16,5 +16,5 @@ func TestCopyHeader(t *testing.T) {
 	dst := http.Header{}
 	CopyHeader(dst, src)
 
-	require.Equal(t, []string{"2", "1"}, dst.Values("foo"))
+	require.SliceEqualT(t, []string{"2", "1"}, dst.Values("foo"))
 }

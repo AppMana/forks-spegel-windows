@@ -1,0 +1,146 @@
+package cleanup
+
+import (
+	"context"
+	"errors"
+	"net"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/go-logr/logr"
+
+	"github.com/kvick-org/pkg/errgroup"
+
+	"github.com/spegel-org/spegel/internal/channel"
+	"github.com/spegel-org/spegel/pkg/httpx"
+	"github.com/spegel-org/spegel/pkg/oci/containerd"
+)
+
+func Run(ctx context.Context, addr, configPath string) error {
+	log := logr.FromContextOrDiscard(ctx)
+
+	err := containerd.CleanupMirrorConfiguration(ctx, configPath)
+	if err != nil {
+		return err
+	}
+
+	group := errgroup.WithContext(ctx)
+
+	mux := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet && req.URL.Path != "/readyz" {
+			log.Error(errors.New("unknown request"), "unsupported probe request", "path", req.URL.Path, "method", req.Method)
+			rw.WriteHeader(http.StatusNotFound)
+			return
+		}
+		rw.WriteHeader(http.StatusOK)
+	})
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+	group.Go(func(ctx context.Context) error {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+	group.Go(func(ctx context.Context) error {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	})
+
+	log.Info("waiting to be shutdown")
+	err = group.Wait()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func Wait(ctx context.Context, probeEndpoint string, period time.Duration, threshold int) error {
+	log := logr.FromContextOrDiscard(ctx)
+	resolver := &net.Resolver{}
+	httpClient := httpx.BaseClient()
+
+	addr, port, err := net.SplitHostPort(probeEndpoint)
+	if err != nil {
+		return err
+	}
+
+	immediateCh := make(chan time.Time, 1)
+	immediateCh <- time.Now()
+	close(immediateCh)
+	ticker := time.NewTicker(period)
+	defer ticker.Stop()
+	tickerCh := channel.Merge(immediateCh, ticker.C)
+	thresholdCount := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tickerCh:
+			start := time.Now()
+
+			log.Info("running probe lookup", "host", addr)
+			ips, err := resolver.LookupIPAddr(ctx, addr)
+			if err != nil {
+				log.Error(err, "cleanup probe lookup failed")
+				thresholdCount = 0
+				continue
+			}
+
+			log.Info("running probe request", "endpoints", len(ips))
+			err = probeIPs(ctx, httpClient, ips, port)
+			if err != nil {
+				log.Error(err, "cleanup probe request failed")
+				thresholdCount = 0
+				continue
+			}
+
+			thresholdCount += 1
+			log.Info("probe ran successfully", "threshold", thresholdCount, "duration", time.Since(start).String())
+			if thresholdCount == threshold {
+				log.Info("probe threshold reached")
+				return nil
+			}
+		}
+	}
+}
+
+func probeIPs(ctx context.Context, client *http.Client, ips []net.IPAddr, port string) error {
+	group := errgroup.WithContext(ctx)
+	group.SetLimit(10)
+	for _, ip := range ips {
+		group.Go(func(ctx context.Context) error {
+			u := url.URL{
+				Scheme: "http",
+				Host:   net.JoinHostPort(ip.String(), port),
+				Path:   "/readyz",
+			}
+			reqCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u.String(), nil)
+			if err != nil {
+				return err
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				return err
+			}
+			defer httpx.DrainAndClose(resp.Body)
+			err = httpx.CheckResponseStatus(resp, http.StatusOK)
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+	}
+	err := group.Wait()
+	if err != nil {
+		return err
+	}
+	return nil
+}

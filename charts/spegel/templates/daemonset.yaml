@@ -39,11 +39,12 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       priorityClassName: {{ .Values.priorityClassName }}
-      {{- if .Values.spegel.containerdMirrorAdd }}
+      {{- if or .Values.spegel.containerdMirrorAdd .Values.extraInitContainers }}
       initContainers:
       {{- with .Values.extraInitContainers }}
         {{- toYaml . | nindent 6 }}
       {{- end }}
+      {{- if .Values.spegel.containerdMirrorAdd }}
       - name: configuration
         image: "{{ include "spegel.image" . }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -60,9 +61,6 @@ spec:
           {{- end }}
           {{- end }}
           - --mirror-targets
-          {{- if not .Values.service.registry.usePreferSameNodeTrafficDistribution }}
-          - http://$(NODE_IP):{{ .Values.service.registry.hostPort }}
-          {{- end }}
           - http://$(NODE_IP):{{ .Values.service.registry.nodePort }}
           {{- with .Values.spegel.additionalMirrorTargets }}
           {{- range . }}
@@ -84,6 +82,7 @@ spec:
             mountPath: "/etc/secrets/basic-auth"
             readOnly: true
           {{- end }}
+      {{- end }}
       {{- end }}
       containers:
       - name: registry
@@ -107,6 +106,7 @@ spec:
           {{- end }}
           - --containerd-sock={{ .Values.spegel.containerdSock }}
           - --containerd-namespace={{ .Values.spegel.containerdNamespace }}
+          - --containerd-registry-config-path={{ .Values.spegel.containerdRegistryConfigPath }}
           - --bootstrap-kind=dns
           - --dns-bootstrap-domain={{ include "spegel.fullname" . }}-bootstrap.{{ include "spegel.namespace" . }}.svc.{{ .Values.clusterDomain }}
           {{- with .Values.spegel.registryFilters }}
@@ -140,9 +140,6 @@ spec:
         ports:
           - name: registry
             containerPort: {{ .Values.service.registry.port }}
-            {{- if not .Values.service.registry.usePreferSameNodeTrafficDistribution }}
-            hostPort: {{ .Values.service.registry.hostPort }}
-            {{- end }}
             protocol: TCP
           - name: router-tcp
             containerPort: {{ .Values.service.router.port }}

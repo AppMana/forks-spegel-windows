@@ -7,8 +7,8 @@ import (
 	"io"
 
 	"github.com/containerd/containerd/v2/core/images"
-	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
 	"github.com/spegel-org/spegel/pkg/httpx"
 )
 
@@ -18,52 +18,16 @@ const (
 	ManifestMaxSize = 4 * 1024 * 1024
 )
 
-var (
-	ErrNotFound = errors.New("content not found")
-)
-
-type EventType string
-
-const (
-	CreateEvent EventType = "CREATE"
-	DeleteEvent EventType = "DELETE"
-)
-
-type OCIEvent struct {
-	Type      EventType
-	Reference Reference
-}
-
-type Store interface {
-	// Name returns the name of the store implementation.
-	Name() string
-
+type ImageLister interface {
 	// ListImages returns a list of all local images.
 	ListImages(ctx context.Context) ([]Image, error)
-
-	// ListContent returns a list of references for all the content.
-	ListContent(ctx context.Context) ([][]Reference, error)
-
-	// Resolve returns the digest for the tagged image name reference.
-	// The ref is expected to be in the format `registry/name:tag`.
-	Resolve(ctx context.Context, ref string) (digest.Digest, error)
-
-	// Descriptor returns the OCI descriptor for the given digest.
-	Descriptor(ctx context.Context, dgst digest.Digest) (ocispec.Descriptor, error)
-
-	// Open returns the streamable content for the given digest.
-	Open(ctx context.Context, dgst digest.Digest) (io.ReadSeekCloser, error)
-
-	// Subscribe will notify for any image events ocuring in the store backend.
-	Subscribe(ctx context.Context) (<-chan OCIEvent, error)
 }
 
 // FingerprintMediaType attempts to determine the media type based on the json structure.
 func FingerprintMediaType(r io.Reader) (string, error) {
 	dec := json.NewDecoder(r)
 	tok, err := dec.Token()
-	var syntaxErr *json.SyntaxError
-	if errors.As(err, &syntaxErr) {
+	if _, ok := errors.AsType[*json.SyntaxError](err); ok {
 		return httpx.ContentTypeBinary, nil
 	}
 	if err != nil {

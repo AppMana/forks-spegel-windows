@@ -4,9 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
-	"github.com/spegel-org/spegel/internal/ptr"
+	"github.com/go-openapi/testify/v2/require"
 )
 
 func TestRange(t *testing.T) {
@@ -24,31 +22,31 @@ func TestRange(t *testing.T) {
 		{
 			value: "bytes=0-0",
 			expectedRange: Range{
-				Start: ptr.To(int64(0)),
-				End:   ptr.To(int64(0)),
+				Start: new(int64(0)),
+				End:   new(int64(0)),
 			},
 			expectedString: "bytes=0-0",
 		},
 		{
 			value: "bytes=0-499",
 			expectedRange: Range{
-				Start: ptr.To(int64(0)),
-				End:   ptr.To(int64(499)),
+				Start: new(int64(0)),
+				End:   new(int64(499)),
 			},
 			expectedString: "bytes=0-499",
 		},
 		{
 			value: "bytes=500-999",
 			expectedRange: Range{
-				Start: ptr.To(int64(500)),
-				End:   ptr.To(int64(999)),
+				Start: new(int64(500)),
+				End:   new(int64(999)),
 			},
 			expectedString: "bytes=500-999",
 		},
 		{
 			value: "bytes=500-",
 			expectedRange: Range{
-				Start: ptr.To(int64(500)),
+				Start: new(int64(500)),
 				End:   nil,
 			},
 			expectedString: "bytes=500-",
@@ -57,7 +55,7 @@ func TestRange(t *testing.T) {
 			value: "bytes=-200",
 			expectedRange: Range{
 				Start: nil,
-				End:   ptr.To(int64(200)),
+				End:   new(int64(200)),
 			},
 			expectedString: "bytes=-200",
 		},
@@ -72,7 +70,7 @@ func TestRange(t *testing.T) {
 			r, err := ParseRangeHeader(header)
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedRange, *r)
-			require.Equal(t, tt.expectedString, r.String())
+			require.EqualT(t, tt.expectedString, r.String())
 		})
 	}
 
@@ -117,9 +115,9 @@ func TestRange(t *testing.T) {
 		})
 	}
 
-	err = Range{Start: ptr.To(int64(-1)), End: ptr.To(int64(0))}.Validate()
+	err = Range{Start: new(int64(-1)), End: new(int64(0))}.Validate()
 	require.EqualError(t, err, "start range -1 cannot be less than zero")
-	err = Range{Start: ptr.To(int64(0)), End: ptr.To(int64(-1))}.Validate()
+	err = Range{Start: new(int64(0)), End: new(int64(-1))}.Validate()
 	require.EqualError(t, err, "end range -1 cannot be less than zero")
 }
 
@@ -205,8 +203,8 @@ func TestContentRange(t *testing.T) {
 			require.NoError(t, err)
 			crng, err := ContentRangeFromRange(*rng, tt.size)
 			require.NoError(t, err)
-			require.Equal(t, tt.expectedString, crng.String())
-			require.Equal(t, tt.expectedLength, crng.Length())
+			require.EqualT(t, tt.expectedString, crng.String())
+			require.EqualT(t, tt.expectedLength, crng.Length())
 		})
 	}
 
@@ -215,4 +213,76 @@ func TestContentRange(t *testing.T) {
 
 	_, err = ContentRangeFromRange(Range{Start: nil, End: nil}, 100)
 	require.EqualError(t, err, "start and end range cannot both be empty")
+
+	start := int64(1000)
+	_, err = ContentRangeFromRange(Range{Start: &start}, 1000)
+	require.EqualError(t, err, "start 1000 is out of bounds for size 1000")
+
+	start = int64(1500)
+	end := int64(2000)
+	_, err = ContentRangeFromRange(Range{Start: &start, End: &end}, 1000)
+	require.EqualError(t, err, "start 1500 is out of bounds for size 1000")
+}
+
+func TestRangeClone(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		rng  *Range
+		want *Range
+		name string
+	}{
+		{
+			name: "nil range",
+			rng:  nil,
+			want: nil,
+		},
+		{
+			name: "empty range",
+			rng:  &Range{},
+			want: &Range{},
+		},
+		{
+			name: "range with start and end",
+			rng: &Range{
+				Start: new(int64(0)),
+				End:   new(int64(100)),
+			},
+			want: &Range{
+				Start: new(int64(0)),
+				End:   new(int64(100)),
+			},
+		},
+		{
+			name: "range with only start",
+			rng: &Range{
+				Start: new(int64(50)),
+				End:   nil,
+			},
+			want: &Range{
+				Start: new(int64(50)),
+				End:   nil,
+			},
+		},
+		{
+			name: "range with only end",
+			rng: &Range{
+				Start: nil,
+				End:   new(int64(50)),
+			},
+			want: &Range{
+				Start: nil,
+				End:   new(int64(50)),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rng := tt.rng.Clone()
+			if tt.rng != nil {
+				require.NotSameT(t, tt.rng, rng)
+			}
+			require.Equal(t, tt.want, rng)
+		})
+	}
 }

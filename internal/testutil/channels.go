@@ -3,7 +3,7 @@ package testutil
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/go-openapi/testify/v2/require"
 )
 
 func RequireChannelReceive[T any](t *testing.T, ch <-chan T) {
@@ -43,4 +43,33 @@ func RequireChannelClosed[T any](t *testing.T, ch <-chan T) {
 	default:
 		require.FailNow(t, "channel is open but expected to be closed")
 	}
+}
+
+func WaitForClose[T any](t *testing.T, ch <-chan T) {
+	t.Helper()
+
+	select {
+	case <-t.Context().Done():
+		require.FailNow(t, "context cancelled channel waiting")
+	case _, ok := <-ch:
+		if !ok {
+			return
+		}
+		require.FailNow(t, "channel is receiving values but expected to be closed")
+	}
+}
+
+func EnsureEvents[T comparable](t *testing.T, ch <-chan T, expected []T) {
+	t.Helper()
+
+	received := []T{}
+	for range len(expected) {
+		select {
+		case <-t.Context().Done():
+			require.FailNow(t, "context cancelled channel waiting")
+		case event := <-ch:
+			received = append(received, event)
+		}
+	}
+	require.ElementsMatchT(t, expected, received)
 }

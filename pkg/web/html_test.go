@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/go-openapi/testify/v2/require"
 )
 
 func TestHTMLResponseError(t *testing.T) {
@@ -50,8 +50,8 @@ func TestHTMLResponseError(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			require.Equal(t, tt.wantBody, body)
-			require.Equal(t, tt.wantContentType, contentType)
+			require.SliceEqualT(t, tt.wantBody, body)
+			require.EqualT(t, tt.wantContentType, contentType)
 		})
 	}
 }

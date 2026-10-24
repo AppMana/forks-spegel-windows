@@ -16,14 +16,6 @@ Read the [getting started](https://spegel.dev/docs/getting-started/) guide to de
 | extraInitContainers | list | `[]` | Add additional initContainers *before* Spegel's own configuration init container to run additional node init configuration tasks |
 | extraVolumes | list | `[]` | Add additional volumes to the daemonset. This can be helpful when adding custom init containers that need host path mounts to different locations than the already configured ones. |
 | fullnameOverride | string | `""` | Overrides the full name of the chart. |
-| grafanaDashboard.annotations | object | `{}` | Annotations to add to the Sidecar configMap or GrafanaDashboard. |
-| grafanaDashboard.enabled | bool | `false` | If true creates a Grafana dashboard. |
-| grafanaDashboard.grafanaOperator.allowCrossNamespaceImport | bool | `true` | If true allows for a Grafana in any namespace to access this GrafanaDashboard. |
-| grafanaDashboard.grafanaOperator.folder | string | `""` | Folder to create the dashboard in. |
-| grafanaDashboard.grafanaOperator.matchLabels | object | `{}` | Selected labels for Grafana instance. |
-| grafanaDashboard.grafanaOperator.resyncPeriod | string | `"10m"` | Resync period for the Grafana operator to check for updates to the dashboard. |
-| grafanaDashboard.labels | object | `{}` | Labels to add to the Sidecar configMap or GrafanaDashboard. |
-| grafanaDashboard.mode | string | `"Sidecar"` | Mode for Grafana dashboard creation. Valid values are `Sidecar` and `GrafanaOperator`. |
 | image.digest | string | `""` | Image digest. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image Pull Policy. |
 | image.repository | string | `"ghcr.io/spegel-org/spegel"` | Image repository. |
@@ -32,6 +24,7 @@ Read the [getting started](https://spegel.dev/docs/getting-started/) guide to de
 | livenessProbe.enabled | bool | `false` | When enabled a liveness probe will be added to the registry. |
 | nameOverride | string | `""` | Overrides the name of the chart. |
 | namespaceOverride | string | `""` | Overrides the namespace where spegel resources are installed. |
+| networkPolicy.enabled | bool | `false` | If true creates a NetworkPolicy that limits libp2p router traffic to Spegel peers in the release namespace. |
 | nodeSelector | object | `{"kubernetes.io/os":"linux"}` | Node selector for pod assignment. |
 | podAnnotations | object | `{}` | Annotations to add to the pod. |
 | podSecurityContext | object | `{}` | Security context for the pod. |
@@ -45,12 +38,9 @@ Read the [getting started](https://spegel.dev/docs/getting-started/) guide to de
 | service.metrics.annotations | object | `{}` | Annotations to add to the metrics service |
 | service.metrics.port | int | `9090` | Port to expose the metrics via the service. |
 | service.registry.annotations | object | `{}` | Annotations to add to the registry service |
-| service.registry.hostPort | int | `30020` | Local host port to expose the registry. |
 | service.registry.nodeIp | string | `""` | Override the NODE_ID environment variable. It defaults to the field status.hostIP |
-| service.registry.nodePort | int | `30021` | Node port to expose the registry via the service. |
+| service.registry.nodePort | int | `30020` | Node port to expose the registry via the service. |
 | service.registry.port | int | `5000` | Port to expose the registry via the service. |
-| service.registry.topologyAwareHintsEnabled | bool | `true` | If true adds topology aware hints annotation to node port service. |
-| service.registry.usePreferSameNodeTrafficDistribution | bool | `false` | Use PreferSameNode traffic distribution on the node port service instead of using an additional mirror registry on a container host port. |
 | service.router.port | int | `5001` | Port to expose the router via the service. |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the service account |
 | serviceAccount.name | string | `""` | The name of the service account to use. If not set and create is true, a name is generated using the fullname template. |
@@ -67,6 +57,7 @@ Read the [getting started](https://spegel.dev/docs/getting-started/) guide to de
 | spegel.containerdRegistryConfigPath | string | `"/etc/containerd/certs.d"` | Path to Containerd mirror configuration. |
 | spegel.containerdSock | string | `"/run/containerd/containerd.sock"` | Path to Containerd socket. |
 | spegel.debugWebEnabled | bool | `true` | When true enables debug web page. |
+| spegel.goMemLimit | string | `""` | Optional Go soft memory limit. When empty, defaults to the container memory limit. Set lower than the cgroup limit to reserve non-heap memory. |
 | spegel.logLevel | string | `"INFO"` | Minimum log level to output. Value should be DEBUG, INFO, WARN, or ERROR. |
 | spegel.mirrorResolveRetries | int | `3` | Max amount of mirrors to attempt. |
 | spegel.mirrorResolveTimeout | string | `"20ms"` | Max duration spent finding a mirror. |
@@ -87,3 +78,11 @@ Read the [getting started](https://spegel.dev/docs/getting-started/) guide to de
 | verticalPodAutoscaler.recommenders | list | `[]` | Recommender responsible for generating recommendation for the object. List should be empty (then the default recommender will generate the recommendation) or contain exactly one recommender. |
 | verticalPodAutoscaler.updatePolicy.minReplicas | int | `2` | Specifies minimal number of replicas which need to be alive for VPA Updater to attempt pod eviction |
 | verticalPodAutoscaler.updatePolicy.updateMode | string | `"Auto"` | Specifies whether recommended updates are applied when a Pod is started and whether recommended updates are applied during the life of a Pod. Possible values are "Off", "Initial", "Recreate", and "Auto". |
+| windows | object | `{"dnsNameservers":[],"enabled":false,"image":{"repository":"","tag":""},"resources":{},"spegel":{"containerdContentPath":"C:\\ProgramData\\containerd\\root\\io.containerd.content.v1.content","containerdRegistryConfigPath":"C:\\ProgramData\\containerd\\certs.d","containerdSock":"\\\\.\\pipe\\containerd-containerd","persistence":{"enabled":true,"hostPath":"C:\\ProgramData\\spegel","path":"C:\\ProgramData\\spegel"}},"tolerations":[]}` | Windows DaemonSet settings (opt-in). When `windows.enabled=true` a second DaemonSet is rendered that targets `kubernetes.io/os: windows` nodes and runs Spegel as a HostProcess container. The Linux DaemonSet is always rendered and is automatically pinned to `kubernetes.io/os: linux` to prevent scheduling on Windows nodes. This was added by the appmana fork — see https://github.com/appmana/forks-spegel-windows. |
+| windows.dnsNameservers | list | `[]` | Explicit DNS nameservers for the Windows HostProcess pods. Required because HostProcess pods cannot use kubelet-injected resolv.conf; set this to your CoreDNS/kube-dns ClusterIP(s). No default — operators must supply them since the value depends on the cluster's service CIDR. |
+| windows.enabled | bool | `false` | If true, render a Windows HostProcess DaemonSet in addition to the Linux one. |
+| windows.image.repository | string | `""` | Windows image repository. Separate from Linux because publishing a cross-OS manifest list is a follow-up; for now a -windows-amd64 suffix tag is built by the release-windows workflow. |
+| windows.image.tag | string | `""` | Windows image tag. Empty means default to `<chart appVersion>-windows-amd64`. |
+| windows.resources | object | `{}` | Resource requests and limits for Windows containers. Empty inherits the global resources block used by Linux. |
+| windows.spegel | object | `{"containerdContentPath":"C:\\ProgramData\\containerd\\root\\io.containerd.content.v1.content","containerdRegistryConfigPath":"C:\\ProgramData\\containerd\\certs.d","containerdSock":"\\\\.\\pipe\\containerd-containerd","persistence":{"enabled":true,"hostPath":"C:\\ProgramData\\spegel","path":"C:\\ProgramData\\spegel"}}` | Spegel Windows paths. Match containerd 2.2.1 on Windows Server 2022 (observed on appmana-023 — see probes/appmana-023/findings.md). |
+| windows.tolerations | list | `[]` | Tolerations for the Windows DaemonSet. Copy from your existing Windows workloads (e.g., Calico for Windows); leave empty to inherit cluster defaults. |

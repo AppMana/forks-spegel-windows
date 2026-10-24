@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/go-openapi/testify/v2/require"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/stretchr/testify/require"
 )
 
 func TestServeMux(t *testing.T) {
@@ -20,10 +20,10 @@ func TestServeMux(t *testing.T) {
 
 	m := NewServeMux(logr.Discard())
 	handlersCalled := []string{}
-	m.Handle("/exact", func(rw ResponseWriter, req *http.Request) {
+	m.HandleFunc("/exact", func(rw ResponseWriter, req *http.Request) {
 		handlersCalled = append(handlersCalled, "exact")
 	})
-	m.Handle("/prefix/", func(rw ResponseWriter, req *http.Request) {
+	m.HandleFunc("/prefix/", func(rw ResponseWriter, req *http.Request) {
 		handlersCalled = append(handlersCalled, "prefix")
 	})
 	paths := []string{"/prefix/", "/exact", "/exact/foo", "/prefix/bar"}
@@ -34,7 +34,7 @@ func TestServeMux(t *testing.T) {
 	}
 
 	expectedHandlersCalled := []string{"prefix", "exact", "prefix"}
-	require.Equal(t, expectedHandlersCalled, handlersCalled)
+	require.SliceEqualT(t, expectedHandlersCalled, handlersCalled)
 
 	expectedMetrics := `
 # HELP http_requests_inflight The number of inflight requests being handled at the same time.
@@ -79,7 +79,7 @@ http_response_size_bytes_count{code="200",handler="/prefix/*",method="GET"} 2
 	require.NoError(t, err)
 }
 
-func TestGetClientIP(t *testing.T) {
+func TestClientIP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -117,8 +117,8 @@ func TestGetClientIP(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ip := GetClientIP(tt.request)
-			require.Equal(t, tt.expected, ip)
+			ip := clientIP(tt.request)
+			require.EqualT(t, tt.expected, ip)
 		})
 	}
 }
@@ -153,7 +153,7 @@ func TestMetricsFriendlyPath(t *testing.T) {
 				t.Parallel()
 
 				metricsPath := metricsFriendlyPath(method + tt.pattern)
-				require.Equal(t, tt.expected, metricsPath)
+				require.EqualT(t, tt.expected, metricsPath)
 			})
 		}
 	}

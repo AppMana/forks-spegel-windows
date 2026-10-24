@@ -1,0 +1,449 @@
+package containerd
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+
+	eventtypes "github.com/containerd/containerd/api/events"
+	"github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/content"
+	"github.com/containerd/containerd/v2/core/events"
+	"github.com/containerd/containerd/v2/core/images"
+	"github.com/containerd/containerd/v2/plugins"
+	"github.com/containerd/errdefs"
+	"github.com/containerd/typeurl/v2"
+	"github.com/go-logr/logr"
+	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"google.golang.org/grpc"
+	utilversion "k8s.io/apimachinery/pkg/util/version"
+
+	"github.com/kvick-org/pkg/option"
+
+	"github.com/spegel-org/spegel/pkg/httpx"
+	"github.com/spegel-org/spegel/pkg/oci"
+	"github.com/spegel-org/spegel/pkg/store"
+)
+
+var _ oci.ImageLister = &Containerd{}
+var _ store.Provider = &Containerd{}
+var _ store.Watcher = &Containerd{}
+
+type ContainerdConfig struct {
+	Conn        net.Conn
+	ContentPath string
+	Filters     []oci.Filter
+}
+
+type ContainerdOption = option.Option[ContainerdConfig]
+
+func WithContentPath(path string) ContainerdOption {
+	return func(cfg *ContainerdConfig) error {
+		cfg.ContentPath = path
+		return nil
+	}
+}
+
+func WithConnection(conn net.Conn) ContainerdOption {
+	return func(cfg *ContainerdConfig) error {
+		cfg.Conn = conn
+		return nil
+	}
+}
+
+func WithFilters(filters []oci.Filter) ContainerdOption {
+	return func(cfg *ContainerdConfig) error {
+		cfg.Filters = filters
+		return nil
+	}
+}
+
+type Containerd struct {
+	client       *client.Client
+	mediaTypeIdx *lru.Cache[digest.Digest, string]
+	contentPath  string
+	filters      []oci.Filter
+}
+
+func NewContainerd(ctx context.Context, socketPath, namespace string, opts ...ContainerdOption) (*Containerd, error) {
+	cfg := ContainerdConfig{}
+	err := option.Apply(&cfg, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	clientOpts := []client.Opt{
+		client.WithDefaultNamespace(namespace),
+	}
+	if cfg.Conn != nil {
+		dialOpt := grpc.WithContextDialer(func(ctx context.Context, s string) (net.Conn, error) {
+			return cfg.Conn, nil
+		})
+		clientOpts = append(clientOpts, client.WithExtraDialOpts([]grpc.DialOption{dialOpt}))
+	}
+	client, err := client.New(socketPath, clientOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	contentPath := cfg.ContentPath
+	if contentPath == "" {
+		contentPath, err = getContentPath(ctx, client)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	mediaTypeIdx, err := lru.New[digest.Digest, string](100)
+	if err != nil {
+		return nil, err
+	}
+
+	c := &Containerd{
+		client:       client,
+		mediaTypeIdx: mediaTypeIdx,
+		contentPath:  contentPath,
+		filters:      cfg.Filters,
+	}
+	return c, nil
+}
+
+func (c *Containerd) Validate(ctx context.Context, registryConfigPath string) error {
+	ctrdVersion, err := c.client.Version(ctx)
+	if err != nil {
+		return err
+	}
+	version, err := utilversion.Parse(ctrdVersion.Version)
+	if err != nil {
+		return fmt.Errorf("could not parse version %s: %w", ctrdVersion, err)
+	}
+
+	// Check for minimum Contianerd version.
+	if !version.AtLeast(utilversion.MustParse("2.2")) {
+		return fmt.Errorf("containerd version %s is too old, version 2.2 or later is required", version.String())
+	}
+
+	// Check for required mirror configuration if exported by Contianerd.
+	if version.AtLeast(utilversion.MustParse("2.4")) {
+		criInfo, err := c.client.IntrospectionService().PluginInfo(ctx, string(plugins.CRIServicePlugin), "images", nil)
+		if err != nil {
+			return err
+		}
+		registryConfigPath := criInfo.Plugin.Exports["RegistryConfigPath"]
+		if !slices.Contains(strings.Split(registryConfigPath, ":"), registryConfigPath) {
+			return fmt.Errorf("registry config path %s does not contain configured path %s", registryConfigPath, registryConfigPath)
+		}
+		discardUnpackedLayers, err := strconv.ParseBool(criInfo.Plugin.Exports["DiscardUnpackedLayers"])
+		if err != nil {
+			return err
+		}
+		if discardUnpackedLayers {
+			return errors.New("discard unpacked layers cannot be enabled")
+		}
+	}
+
+	return nil
+}
+
+func (c *Containerd) Close() error {
+	err := c.client.Close()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Containerd) Name() string {
+	return "containerd"
+}
+
+func (c *Containerd) ListImages(ctx context.Context) ([]oci.Image, error) {
+	cImgs, err := c.client.ImageService().List(ctx, `name~="^.+/"`)
+	if err != nil {
+		return nil, err
+	}
+	return deduplicateImages(ctx, cImgs, c.filters), nil
+}
+
+func deduplicateImages(ctx context.Context, cImgs []images.Image, filters []oci.Filter) []oci.Image {
+	seen := map[string]any{}
+	imgs := []oci.Image{}
+	dgstImgs := []oci.Image{}
+	for _, cImg := range cImgs {
+		img, err := oci.ParseImage(cImg.Name, oci.WithDigest(cImg.Target.Digest))
+		if err != nil {
+			logr.FromContextOrDiscard(ctx).Error(err, "could not parse image name", "name", cImg.Name)
+			continue
+		}
+		if oci.MatchesFilter(img.Reference, filters) {
+			continue
+		}
+		if _, ok := img.TagName(); ok {
+			dgstName, _ := img.DigestName()
+			seen[dgstName] = nil
+			imgs = append(imgs, img)
+			continue
+		}
+		dgstImgs = append(dgstImgs, img)
+	}
+	for _, img := range dgstImgs {
+		dgstName, _ := img.DigestName()
+		if _, ok := seen[dgstName]; ok {
+			continue
+		}
+		imgs = append(imgs, img)
+	}
+	return imgs
+}
+
+func (c *Containerd) Resolve(ctx context.Context, ref string) (digest.Digest, error) {
+	cImg, err := c.client.ImageService().Get(ctx, ref)
+	if errors.Is(err, errdefs.ErrNotFound) {
+		return "", errors.Join(store.ErrNotFound, err)
+	}
+	if err != nil {
+		return "", err
+	}
+	return cImg.Target.Digest, nil
+}
+
+func (c *Containerd) Descriptor(ctx context.Context, dgst digest.Digest) (store.Descriptor, error) {
+	info, err := c.client.ContentStore().Info(ctx, dgst)
+	if errors.Is(err, errdefs.ErrNotFound) {
+		return store.Descriptor{}, errors.Join(store.ErrNotFound, err)
+	}
+	if err != nil {
+		return store.Descriptor{}, err
+	}
+
+	mt, ok := c.mediaTypeIdx.Get(dgst)
+	if !ok {
+		mt, err = func() (string, error) {
+			if info.Size > oci.ManifestMaxSize {
+				return httpx.ContentTypeBinary, nil
+			}
+			rc, err := c.Open(ctx, dgst)
+			if err != nil {
+				return "", err
+			}
+			defer rc.Close()
+			mt, err := oci.FingerprintMediaType(rc)
+			if err != nil {
+				return "", err
+			}
+			return mt, nil
+		}()
+		if err != nil {
+			return store.Descriptor{}, err
+		}
+		c.mediaTypeIdx.Add(dgst, mt)
+	}
+
+	desc := store.Descriptor{
+		Size:      info.Size,
+		Digest:    dgst,
+		MediaType: mt,
+	}
+	return desc, nil
+}
+
+func (c *Containerd) Open(ctx context.Context, dgst digest.Digest) (io.ReadSeekCloser, error) {
+	if c.contentPath != "" {
+		path := filepath.Join(c.contentPath, "blobs", dgst.Algorithm().String(), dgst.Encoded())
+		file, err := os.Open(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, errors.Join(store.ErrNotFound, err)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return file, nil
+	}
+	ra, err := c.client.ContentStore().ReaderAt(ctx, ocispec.Descriptor{Digest: dgst})
+	if errors.Is(err, errdefs.ErrNotFound) {
+		return nil, errors.Join(store.ErrNotFound, err)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return struct {
+		io.ReadSeeker
+		io.Closer
+	}{
+		ReadSeeker: io.NewSectionReader(ra, 0, ra.Size()),
+		Closer:     ra,
+	}, nil
+}
+
+func (c *Containerd) Watch(ctx context.Context) ([]store.Event, <-chan store.Event, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
+	eventCh := make(chan store.Event)
+	subCtx, subCancel := context.WithCancel(ctx)
+	eventFilters := []string{
+		fmt.Sprintf(`namespace==%q,topic~="/images/create|/images/update",event.name~="^.+/"`, c.client.DefaultNamespace()),
+		fmt.Sprintf(`namespace==%q,topic~="/images/delete"`, c.client.DefaultNamespace()),
+		fmt.Sprintf(`namespace==%q,topic~="/content/create"`, c.client.DefaultNamespace()),
+		fmt.Sprintf(`namespace==%q,topic~="/snapshot/remove"`, c.client.DefaultNamespace()),
+	}
+	envelopeCh, cErrCh := c.client.EventService().Subscribe(subCtx, eventFilters...)
+
+	// Populate the content index.
+	idx := NewIndex()
+	initial := []store.Event{}
+
+	imgs, err := c.ListImages(ctx)
+	if err != nil {
+		subCancel()
+		return nil, nil, err
+	}
+	for _, img := range imgs {
+		initial = append(initial, idx.AddImage(img)...)
+	}
+	err = c.client.ContentStore().Walk(ctx, func(info content.Info) error {
+		initial = append(initial, idx.AddContent(info.Digest)...)
+		return nil
+	})
+	if err != nil {
+		subCancel()
+		return nil, nil, err
+	}
+
+	go func() {
+		defer close(eventCh)
+		for {
+			select {
+			case <-subCtx.Done():
+				return
+			case envelope := <-envelopeCh:
+				events, err := c.handleEvent(subCtx, *envelope, idx)
+				if err != nil {
+					log.Error(err, "error when handling containerd event")
+					continue
+				}
+				for _, event := range events {
+					eventCh <- event
+				}
+			}
+		}
+	}()
+
+	go func() {
+		// Required so that the event channel closes in case Containerd is restarted.
+		defer subCancel()
+		for err := range cErrCh {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			log.Error(err, "received containerd event error")
+		}
+	}()
+
+	return initial, eventCh, nil
+}
+
+func (c *Containerd) handleEvent(ctx context.Context, envelope events.Envelope, idx *Index) ([]store.Event, error) {
+	if envelope.Event == nil {
+		return nil, errors.New("envelope event cannot be nil")
+	}
+	evt, err := typeurl.UnmarshalAny(envelope.Event)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal envelope event: %w", err)
+	}
+
+	switch e := evt.(type) {
+	case *eventtypes.ContentCreate:
+		dgst, err := digest.Parse(e.GetDigest())
+		if err != nil {
+			return nil, err
+		}
+		return idx.AddContent(dgst), nil
+	case *eventtypes.ImageCreate:
+		cImg, err := c.client.ImageService().Get(ctx, e.GetName())
+		if err != nil {
+			return nil, err
+		}
+		if cImg.UpdatedAt.After(envelope.Timestamp) {
+			logr.FromContextOrDiscard(ctx).Info("skipping image that was updated after create event")
+			return nil, nil
+		}
+		img, err := oci.ParseImage(e.GetName(), oci.WithDigest(cImg.Target.Digest))
+		if err != nil {
+			return nil, err
+		}
+		return idx.AddImage(img), nil
+	case *eventtypes.ImageUpdate:
+		cImg, err := c.client.ImageService().Get(ctx, e.GetName())
+		if err != nil {
+			return nil, err
+		}
+		if cImg.UpdatedAt.After(envelope.Timestamp) {
+			logr.FromContextOrDiscard(ctx).Info("skipping image that was updated after update event")
+			return nil, nil
+		}
+		img, err := oci.ParseImage(e.GetName(), oci.WithDigest(cImg.Target.Digest))
+		if err != nil {
+			return nil, err
+		}
+		return idx.AddImage(img), nil
+	case *eventtypes.ImageDelete:
+		if _, err := digest.Parse(e.GetName()); err == nil {
+			dgsts := []digest.Digest{}
+			err = c.client.ContentStore().Walk(ctx, func(info content.Info) error {
+				dgsts = append(dgsts, info.Digest)
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
+			return idx.DiffContent(dgsts), nil
+		}
+		img, err := oci.ParseImage(e.GetName(), oci.AllowTagOnly())
+		if err != nil {
+			return nil, err
+		}
+		return idx.RemoveImage(img), nil
+	case *eventtypes.SnapshotRemove:
+		dgsts := []digest.Digest{}
+		err = c.client.ContentStore().Walk(ctx, func(info content.Info) error {
+			dgsts = append(dgsts, info.Digest)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return idx.DiffContent(dgsts), nil
+	default:
+		return nil, fmt.Errorf("unsupported event type %T", evt)
+	}
+}
+
+func getContentPath(ctx context.Context, client *client.Client) (string, error) {
+	pluginInfo, err := client.IntrospectionService().PluginInfo(ctx, string(plugins.ContentPlugin), "content", nil)
+	if err != nil {
+		return "", err
+	}
+	root, ok := pluginInfo.Plugin.Exports["root"]
+	if !ok {
+		logr.FromContextOrDiscard(ctx).Info("falling back to reading content from socket as content path could not be found in plugin")
+		return "", nil
+	}
+	ok, err = dirExists(root)
+	if err != nil && !errors.Is(err, os.ErrPermission) {
+		return "", err
+	}
+	if !ok {
+		logr.FromContextOrDiscard(ctx).Info("falling back to reading content from socket as content path directory does not exist")
+		return "", nil
+	}
+	return root, nil
+}

@@ -5,6 +5,7 @@ package platform
 import "testing"
 
 func TestDefaultsWindows(t *testing.T) {
+	t.Parallel()
 	d := Defaults()
 	want := Paths{
 		ContainerdSock:               `\\.\pipe\containerd-containerd`,

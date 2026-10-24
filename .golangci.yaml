@@ -16,6 +16,7 @@ linters:
     - unused
     - noctx
     - forbidigo
+    - depguard
   settings:
     errcheck:
       disable-default-exclusions: true
@@ -34,6 +35,24 @@ linters:
       disable:
         - shadow
       enable-all: true
+    depguard:
+      rules:
+        main:
+          list-mode: lax
+          allow:
+            - github.com/containerd/containerd/v2
+            - github.com/containerd/containerd/api
+          deny:
+            - pkg: "golang.org/x/sync/errgroup"
+              desc: use github.com/kvick-org/pkg/errgroup instead
+            - pkg: "math/rand$"
+              desc: use math/rand/v2 instead
+            - pkg: "github.com/pkg/errors"
+              desc: use errors instead
+            - pkg: "github.com/stretchr/testify"
+              desc: use github.com/go-openapi/testify/v2/require instead
+            - pkg: "github.com/containerd/containerd"
+              desc: use github.com/containerd/containerd/v2 instead
     importas:
       alias:
         - pkg: io/fs
@@ -42,6 +61,8 @@ linters:
           alias: tlog
         - pkg: github.com/pelletier/go-toml/v2/unstable
           alias: tomlu
+        - pkg: github.com/libp2p/go-libp2p/p2p/host/resource-manager
+          alias: rcmgr
         - pkg: github.com/multiformats/go-multiaddr/net
           alias: manet
         - pkg: github.com/multiformats/go-multiaddr
@@ -86,24 +107,20 @@ linters:
         - error
         - empty
         - stdlib
-        - github.com/libp2p/go-libp2p/core/crypto.PrivKey
   exclusions:
-    generated: lax
     presets:
-      - comments
-      - common-false-positives
-      - legacy
       - std-error-handling
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
 formatters:
   enable:
-    - goimports
-  exclusions:
-    generated: lax
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - prefix(golang.org/x)
+        - default
+        - prefix(github.com/spegel-org, github.com/kvick-org)
+        - localmodule
+      no-inline-comments: true
+      no-prefix-comments: true
+      custom-order: true

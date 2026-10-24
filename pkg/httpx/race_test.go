@@ -10,7 +10,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/go-openapi/testify/v2/require"
 )
 
 func TestHappyEyeballs(t *testing.T) {
@@ -73,5 +73,5 @@ func TestHappyEyeballs(t *testing.T) {
 		return string(b), nil
 	})
 	require.NoError(t, err)
-	require.Equal(t, "Hello World", res)
+	require.EqualT(t, "Hello World", res)
 }
